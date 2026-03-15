@@ -121,4 +121,128 @@ This will publish:
 - `/apriltag_poses` – `PoseArray` of tag poses in the camera frame  
 - TF frames – one per tag: `camera -> tag_<id>`
 
+------------------------------------------------------------------------
+------------------------------------------------------------------------
 
+# Camera Calibration (Charuco)
+
+Before using pose estimation with apriltag_runner.py, you should
+calibrate the camera to obtain accurate intrinsic parameters (fx, fy,
+cx, cy).
+
+A helper script camera_calibration.py is included for this purpose. It
+performs Charuco-based camera calibration using images of a Charuco
+board.
+
+------------------------------------------------------------------------
+
+Requirements
+
+    pip install opencv-python opencv-contrib-python numpy
+
+The opencv-contrib-python package is required for the cv2.aruco module.
+
+------------------------------------------------------------------------
+
+Calibration Board
+
+This script assumes the following Charuco board configuration:
+
+-   Squares: 5 × 3
+-   Square size: 5 mm
+-   Marker size: 3.5 mm
+-   Dictionary: DICT_4X4_50
+
+Make sure your printed board matches these parameters or modify the file accordingly.
+
+------------------------------------------------------------------------
+
+Preparing Calibration Images
+
+1.  Place the calibration images in the same folder as the script
+    (camera_calibration.py).
+
+2.  Supported formats:
+
+    *.png
+    *.jpg
+    *.jpeg
+
+3.  Capture ~25–40 images of the Charuco board with:
+    -   Different orientations
+    -   Different positions in the frame
+    -   The board covering different parts of the image
+    -   Good lighting and sharp focus
+
+The script automatically scans the folder and loads all images.
+
+------------------------------------------------------------------------
+
+Running Calibration
+
+Example:
+
+    python3 camera_calibration.py
+
+Optional flags:
+
+    --out camera_charuco_calib.yaml   # output file name
+    --show                            # visualize detections during calibration
+    --min-markers 2                   # minimum detected ArUco markers per frame
+
+Example with visualization:
+
+    python3 camera_calibration.py --show
+
+------------------------------------------------------------------------
+
+Example Output
+
+    === Calibration Result ===
+    Kept frames: 20 / 24
+    RMS reprojection error: 1.2886 pixels
+
+    K (camera matrix):
+    [[290.13578038   0.         672.32394849]
+     [  0.         283.41101199 653.22399757]
+     [  0.           0.           1.        ]]
+
+    D (dist coeffs):
+    [ 0.0120927  -0.00889392 -0.0083376  -0.00296499  0.00127125]
+
+The script will also print the parameters needed for apriltag_runner.py:
+
+    Use these in AprilTag runner:
+
+    --fx 290.135780
+    --fy 283.411012
+    --cx 672.323948
+    --cy 653.223998
+
+Example usage with the AprilTag runner:
+
+    python3 apriltag_runner.py \
+      --cam-id DEV_000F315BCAB1 \
+      --tag-size 0.025 \
+      --fx 290.135780 \
+      --fy 283.411012 \
+      --cx 672.323948 \
+      --cy 653.223998
+
+------------------------------------------------------------------------
+
+Output File
+
+The calibration script saves a YAML file containing:
+
+    camera_charuco_calib.yaml
+
+This file includes:
+
+-   Image width and height
+-   Camera matrix
+-   Distortion coefficients
+-   RMS reprojection error
+
+This file can be archived for reproducibility or reused in other vision
+pipelines.
