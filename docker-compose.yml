@@ -1,0 +1,25 @@
+version: "3.9"
+
+services:
+  apriltag-reader:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: apriltag-reader-nsls-ii:humble
+    container_name: apriltag-reader-nsls-ii
+    working_dir: /workspace
+    stdin_open: true
+    tty: true
+    network_mode: host
+    ipc: host
+    environment:
+      DISPLAY: ${DISPLAY}
+      QT_X11_NO_MITSHM: "1"
+      PYTHONUNBUFFERED: "1"
+    volumes:
+      - ./:/workspace
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      # Optional: mount Vimba X into the container (must be installed on the host).
+      # Adjust the host path if your SDK is installed elsewhere.
+      - /opt/VimbaX:/opt/VimbaX:ro
+    command: bash
