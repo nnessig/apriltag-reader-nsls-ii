@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual envs
+.venv/
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Docker local junk
+*.log
+
+# Keep folders, ignore contents
+output/*
+!output/.gitkeep
+
+calibration_images/*
+!calibration_images/.gitkeep
+
+tag_images/*
+!tag_images/.gitkeep
+
+# Common generated outputs
+*.yaml
+*.yml
+*_gray.png
+*_overlay.png
+*_edges_overlay.png

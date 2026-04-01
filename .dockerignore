@@ -1,0 +1,12 @@
+.git
+.gitignore
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+output/
+calibration_images/
+tag_images/
+README.md
+docker-compose.yml

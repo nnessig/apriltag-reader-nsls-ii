@@ -23,19 +23,23 @@ import numpy as np
 def main():
     # Set up command line arguments
     ap = argparse.ArgumentParser()
-    
+
+    # Folder containing calibration images
+    ap.add_argument("--images-dir", default="calibration_images",
+                    help="Folder containing calibration images")
+
     # Output yaml file name for saving calibration results
-    ap.add_argument("--out", default="camera_charuco_calib.yaml",
+    ap.add_argument("--out", default="output/camera_charuco_calib.yaml",
                     help="Output YAML file")
-    
+
     # Optionally show detections while the script runs
     ap.add_argument("--show", action="store_true",
                     help="Show detections while running")
-    
+
     # Minimum number of detected ArUco markers required to keep a frame
     ap.add_argument("--min-markers", type=int, default=2,
                     help="Minimum detected ArUco markers to accept a frame")
-    
+
     args = ap.parse_args()
 
     # Board settings (change here if needed for a different setup, original printout generated from calib.io):
@@ -57,26 +61,26 @@ def main():
         dictionary
     )
 
-    # Automatically load all png/jpg/jpeg images from the same folder as the script
-    script_dir = os.path.dirname(os.path.abspath(__file__))
+    # Automatically load all png/jpg/jpeg images from the selected images folder
+    images_dir = os.path.abspath(args.images_dir)
     img_paths = sorted(
-        glob.glob(os.path.join(script_dir, "*.png")) +
-        glob.glob(os.path.join(script_dir, "*.jpg")) +
-        glob.glob(os.path.join(script_dir, "*.jpeg"))
+        glob.glob(os.path.join(images_dir, "*.png")) +
+        glob.glob(os.path.join(images_dir, "*.jpg")) +
+        glob.glob(os.path.join(images_dir, "*.jpeg"))
     )
 
     # Stop immediately if no images were found
     if not img_paths:
-        print(f"ERROR: No images found in folder: {script_dir}", file=sys.stderr)
+        print(f"ERROR: No images found in folder: {images_dir}", file=sys.stderr)
         sys.exit(1)
 
     # These lists will store all valid detected Charuco corners and ids across every accepted image
     all_charuco_corners = []
     all_charuco_ids = []
-    
+
     # Will store image size once we read the first valid image
     image_size = None
-    
+
     # Number of frames that were good enough to keep
     kept = 0
 
@@ -103,7 +107,7 @@ def main():
 
     # Older OpenCV versions may use interpolateCornersCharuco instead
     has_interpolate = hasattr(cv2.aruco, "interpolateCornersCharuco")
-    
+
     # If neither CharucoDetector nor interpolateCornersCharuco exists, calibration cannot continue
     if charuco_detector is None and not has_interpolate:
         raise RuntimeError(
@@ -120,7 +124,7 @@ def main():
 
         # Convert to grayscale for marker detection
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        
+
         # Save image size from the first successfully read image
         if image_size is None:
             image_size = (gray.shape[1], gray.shape[0])  # (w, h)
@@ -231,13 +235,17 @@ def main():
     print(f"RMS reprojection error: {rms:.4f} pixels")
     print("K (camera matrix):\n", K)
     print("D (dist coeffs):\n", D.reshape(-1))
-    
+
     # Print intrinsics in a format that can be pasted into the AprilTag runner
     print(f"\nUse these in AprilTag runner:")
     print(f"  --fx {fx:.6f} --fy {fy:.6f} --cx {cx:.6f} --cy {cy:.6f}")
     print(f"Image size used: {image_size[0]}x{image_size[1]} (WxH)")
 
     # Save calibration result to yaml file
+    out_dir = os.path.dirname(os.path.abspath(args.out))
+    if out_dir:
+        os.makedirs(out_dir, exist_ok=True)
+
     fs = cv2.FileStorage(args.out, cv2.FILE_STORAGE_WRITE)
     fs.write("image_width", int(image_size[0]))
     fs.write("image_height", int(image_size[1]))
@@ -247,6 +255,7 @@ def main():
     fs.release()
 
     print(f"\nSaved: {args.out}")
+
 
 if __name__ == "__main__":
     main()
