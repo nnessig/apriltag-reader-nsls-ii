@@ -316,15 +316,18 @@ If they do NOT match your expected values:
 
 ---
 
-### 2. Avoid Ultra-Wide Lenses
+### 2. Avoid Distorting Lenses
 
-Ultra-wide lenses introduce **heavy distortion**, which:
-- Makes small boards harder to detect
-- Reduces calibration accuracy
+Camera lens distortion can significantly impact calibration quality.
+
+Lenses with strong distortion (e.g., wide-angle or ultra-wide) can:
+- Warp straight lines
+- Make corner detection less reliable
+- Increase calibration error
 
 **Recommendation:**
-- Use the **main (standard) camera lens**
-- Avoid wide-angle or ultra-wide modes
+- Use a standard (non-wide) lens
+- Avoid wide-angle or ultra-wide lenses when possible
 
 ---
 
