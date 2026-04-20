@@ -133,6 +133,11 @@ This will publish:
 
 # Camera Calibration (Charuco)
 
+
+⚠️ **Always measure your printed Charuco board before calibrating.**  
+Incorrect print scaling (e.g., "fit to page") is one of the most common causes of calibration failure.
+
+
 Before using pose estimation with apriltag_runner.py, you should
 calibrate the camera to obtain accurate intrinsic parameters (fx, fy,
 cx, cy).
@@ -270,3 +275,103 @@ This file includes:
 
 This file can be archived for reproducibility or reused in other vision
 pipelines.
+
+
+---
+
+## Common Calibration Failures & Fixes
+
+The following are common real-world issues encountered when running the `camera_calibration.py` pipeline, along with their causes and fixes.
+
+### Issue: "0 good frames kept"
+
+**Symptoms:**
+- ArUco markers are detected (visible with `--show`)
+- Calibration still fails with zero usable frames
+
+**Most likely cause:**
+- Checkerboard squares are too small to resolve clearly
+
+**Fix:**
+- Use a **larger Charuco board** (e.g., 20–30 mm squares instead of 5 mm)
+
+---
+
+## Important Practical Tips
+
+### 1. Verify Printed Board Dimensions
+
+**Do NOT assume your printed board matches the intended size.**
+
+Printer scaling (e.g., “fit to page”) can distort dimensions.
+
+**Always:**
+- Use a ruler or calipers
+- Measure:
+  - Checker square size
+  - ArUco marker size
+
+If they do NOT match your expected values:
+- Update the parameters in the calibration script accordingly
+
+---
+
+### 2. Avoid Ultra-Wide Lenses
+
+Ultra-wide lenses introduce **heavy distortion**, which:
+- Makes small boards harder to detect
+- Reduces calibration accuracy
+
+**Recommendation:**
+- Use the **main (standard) camera lens**
+- Avoid wide-angle or ultra-wide modes
+
+---
+
+### 3. Keep the Board Flat
+
+Printed paper boards can warp slightly.
+
+Even small curvature:
+- Breaks corner detection
+- Reduces calibration accuracy
+
+**Recommendation:**
+- Mount the board on a **rigid flat surface**
+  - (cardboard, foam board, etc.)
+
+---
+
+### 4. Image Quality Matters
+
+Ensure:
+- Good lighting
+- Sharp focus
+- Board fills a reasonable portion of the frame
+- 25–40 images with varied angles
+
+---
+
+### 5. Debugging Tip
+
+Use:
+
+```
+--show
+```
+
+This helps confirm:
+- Markers are detected
+- Whether corner detection is failing
+
+---
+
+## Quick Troubleshooting Checklist
+
+If calibration fails:
+
+1. Increase board size (most common fix)
+2. Measure actual printed dimensions
+3. Switch off ultra-wide lens
+4. Ensure board is flat
+5. Verify image quality
