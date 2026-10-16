@@ -92,8 +92,25 @@ set up locally. `camera_calibration.py` only needs
 
 ## 5. Make and test your changes
 
-There is no automated test suite or CI yet, so please verify your changes
-by hand and say what you ran in the PR description.
+Automated tests live in `tests/` and run in GitHub Actions on every pull
+request, together with the lint checks. Changes that touch the camera or
+ROS 2 publishing still need a manual check on real hardware, so say what
+you ran in the PR description.
+
+### Running the tests
+
+```bash
+pip install -r requirements.txt pytest
+pytest
+```
+
+The tests cover the helper functions in `apriltag_runner.py`, tag
+detection and pose on a synthetic tag, and `camera_calibration.py` on the
+demo images. If ROS 2 is not installed, `tests/conftest.py` substitutes
+mock ROS modules so the tests still run. Camera mode and ROS 2
+publishing are not covered. If you have `nox` or `uv`, `nox -s tests`
+and `nox -s lint` run the tests and lint checks in their own
+environments.
 
 ### Linting and formatting
 
@@ -184,7 +201,7 @@ Before clicking "Create pull request":
 - [ ] Optional features (camera, pose) still degrade gracefully when their dependencies are absent.
 - [ ] `README.md` is updated for any changed flags, defaults, or workflows.
 - [ ] New dependencies are added to `requirements.txt` (and the `Dockerfile` if needed).
-- [ ] `pre-commit run --all-files` passes.
+- [ ] `pre-commit run --all-files` and `pytest` pass.
 - [ ] No secrets, large binaries, or stray output files are included.
 - [ ] The PR description explains what changed and how it was tested.
 

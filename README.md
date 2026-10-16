@@ -85,8 +85,11 @@ Also recalibrate if the camera, lens, or focus changes.
 ### Python dependencies
 
 ```
-pip install pupil-apriltags opencv-python numpy
+pip install -r requirements.txt
 ```
+
+OpenCV is pinned to 4.9 through 4.13 in `requirements.txt`. See the note under
+[Camera Calibration](#camera-calibration-charuco) for why.
 
 ### Optional (camera mode)
 
@@ -195,10 +198,17 @@ board.
 Requirements
 
 ```
-pip install opencv-python opencv-contrib-python numpy
+pip install -r requirements.txt
 ```
 
 The opencv-contrib-python package is required for the cv2.aruco module.
+
+**OpenCV version matters.** Use OpenCV 4.9 through 4.13 (pinned in
+`requirements.txt`). On the same 24 demo images, 4.9 to 4.13 give an RMS
+reprojection error of about 1.29 px, while 4.14 gives about 5.46 px and
+different intrinsics. OpenCV 5.0 removed the Charuco calibration function this
+script uses, so it fails there. The example output below was produced with
+OpenCV 4.9 to 4.13. The cause of the 4.14 difference has not been identified.
 
 ---
 
@@ -428,3 +438,10 @@ If calibration fails:
 ## AI Disclosure
 
 AI tools were used in developing this project. See [AI_DISCLOSURE.md](AI_DISCLOSURE.md) for details.
+
+---
+
+## License
+
+This project is released under the BSD 3-Clause License. See [LICENSE](LICENSE). The
+U.S. Government license terms and disclaimer are in [LICENSE_README](LICENSE_README).

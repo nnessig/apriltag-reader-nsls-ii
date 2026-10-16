@@ -58,6 +58,9 @@ Ask the user before any destructive operation, including:
 | `requirements.txt` | Python deps (`numpy`, `opencv-python`, `opencv-contrib-python`, `pupil-apriltags`) |
 | `calibration_images/`, `tag_images/`, `output/` | User data folders. Contents are gitignored; only `.gitkeep` is tracked |
 | `demo_resources/` | Demo images and a README for the demo video walkthrough |
+| `tests/` | pytest suite. `conftest.py` mocks ROS 2 modules when absent |
+| `pyproject.toml`, `.pre-commit-config.yaml`, `noxfile.py` | Project metadata, ruff and pytest settings, lint hooks, task runner |
+| `.github/` | CI workflow and Dependabot config |
 | `README.md`, `CONTRIBUTING.md`, `AI_DISCLOSURE.md` | Docs |
 
 The README documents the CLI flags. Keep it in sync with
@@ -66,7 +69,12 @@ The README documents the CLI flags. Keep it in sync with
 
 ## Running and verifying
 
-There is no test suite or CI yet. Verify changes by running the code.
+Tests live in `tests/` (run with `pytest`) and run with the lint checks in
+GitHub Actions (`.github/workflows/ci.yml`). `tests/conftest.py` mocks the
+ROS 2 modules when they are not installed, so the tests run without ROS.
+Tests do not cover camera mode or ROS 2 publishing, so verify those by
+running the code. Add or update tests with any change to detection,
+pose filtering, or calibration behavior.
 
 Linting and formatting use ruff, configured in `pyproject.toml`, via
 pre-commit (`.pre-commit-config.yaml`, which also runs `codespell` and
@@ -80,8 +88,9 @@ pre-commit run --files <path1> <path2> ...
 Hooks like `ruff-format` and `ruff-check --fix` modify files in
 place. Report which files a hook changed. If a hook fails to install
 or run, report that and stop. Do not skip hooks with `SKIP=...`. The
-`.pre-commit-config.yaml` file needs its `!` exception in `.gitignore`
-because `*.yaml` is ignored.
+`.pre-commit-config.yaml`, `zizmor.yaml`, and `.github/**/*.yml` need
+their `!` exceptions in `.gitignore` because `*.yaml` and `*.yml` are
+ignored.
 
 - The ROS 2 Python packages (`rclpy`, `std_msgs`, `geometry_msgs`,
   `tf2_ros`) are imported unconditionally at the top of
