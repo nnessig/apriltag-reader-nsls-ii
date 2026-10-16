@@ -1,4 +1,4 @@
-# AprilTag Runner
+# Vimba AprilTag Reader
 
 `apriltag_runner.py` is a flexible AprilTag detection tool that works with either:
 
@@ -33,6 +33,50 @@ It supports optional preprocessing, pose estimation, debug image saving, and ROS
   * `<basename>_overlay.png`
   * `<basename>_edges_overlay.png`
 * Single-frame snapshot mode (for figures, calibration, etc.)
+
+---
+
+## Validation Status
+
+**Calibration:** validated on a representative run. 20 of 24 images
+were retained after filtering, with an RMS reprojection error of
+1.2886 pixels. Calibration success depends strongly on imaging
+conditions (full board visible, sharp focus, even lighting, enough
+pixels per feature, low-distortion lens). See
+[Camera Calibration](#camera-calibration-charuco).
+
+**Detection:** validated under controlled conditions. Over a 516-frame
+evaluation sequence, all visible tags were identified in 515 frames, a
+per-frame detection success rate of **99.81%**. This measures whether
+every visible tag was detected in a frame. It is not a pose accuracy.
+Test conditions were bright, even lighting, manually focused optics,
+tuned camera exposure and gain, rigidly mounted tags of appropriate
+size, and the `tag36h11` family with an Allied Vision Mako G-131C GigE
+camera. Detection was sensitive to lighting, focus, tag size in the
+image, viewing angle, and reflections, and performance was worse under
+uneven lighting. The single missed frame fits those known failure
+modes. Results from other setups may differ.
+
+**Pose output:** working in runtime testing with calibrated
+intrinsics. The system produced pose output across continuous camera
+streams. Optional temporal filtering is available (`--pose-window`,
+`--pose-outlier-thresh`).
+
+**Pose accuracy (6-DoF): not yet measured.** For each detected tag the
+tool estimates the full 6-DoF pose: position (X, Y, Z) and orientation
+(rotation), relative to the camera. Pose is only computed when
+`--tag-size` and the camera intrinsics (`--fx --fy --cx --cy`) are
+given. The translational and rotational error of these estimates has
+not been verified against ground-truth positions, so no precision
+figure is claimed. This testing is planned, for example at LIX once
+that stage of implementation is reached.
+
+**Not yet implemented:** transforms into a robot coordinate frame.
+Poses are relative to the camera only, and the tool is not used for
+closed-loop robot motion.
+
+Until pose accuracy is measured, treat reported poses as unverified.
+Also recalibrate if the camera, lens, or focus changes.
 
 ---
 
@@ -134,7 +178,7 @@ This will publish:
 # Camera Calibration (Charuco)
 
 
-⚠️ **Always measure your printed Charuco board before calibrating.**  
+⚠️ **Always measure your printed Charuco board before calibrating.**
 Incorrect print scaling (e.g., "fit to page") is one of the most common causes of calibration failure.
 
 
@@ -378,3 +422,9 @@ If calibration fails:
 3. Switch off ultra-wide lens
 4. Ensure board is flat
 5. Verify image quality
+
+---
+
+## AI Disclosure
+
+AI tools were used in developing this project. See [AI_DISCLOSURE.md](AI_DISCLOSURE.md) for details.
