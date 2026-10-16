@@ -32,3 +32,5 @@ tag_images/*
 *_gray.png
 *_overlay.png
 *_edges_overlay.png
+# Tooling configs that must stay tracked
+!.pre-commit-config.yaml

@@ -1,0 +1,31 @@
+[project]
+name = "vimba-apriltag-reader"
+version = "0.1.0"
+description = "AprilTag detection, pose estimation, and camera calibration for Allied Vision (Vimba X) cameras, with ROS 2 publishing."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy",
+    "opencv-python",
+    "opencv-contrib-python",
+    "pupil-apriltags",
+]
+
+# This repository is a set of scripts run in the ROS 2 container, not an
+# installable package, so there is no [build-system] table. Runtime
+# dependencies are mirrored in requirements.txt for the Dockerfile.
+
+[dependency-groups]
+dev = [
+    "pre-commit",
+    "ruff",
+]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["B", "E", "F", "I", "UP"]
+ignore = [
+    "E501",  # line length is handled by the formatter
+]
