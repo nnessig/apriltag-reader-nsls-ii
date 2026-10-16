@@ -13,8 +13,9 @@ A step-by-step walkthrough of the pipeline is available on the team OneDrive.
 
 ## Contents
 
-* `calibration_images/` – images used for camera calibration in the demo
-* `tag_images/` – images used for AprilTag detection in the demo
+* `demo_calibration_images/` – images used for camera calibration in the demo
+
+No tag detection images are included. Use your own image for detection.
 
 ## Notes
 

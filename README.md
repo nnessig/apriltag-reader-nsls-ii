@@ -110,9 +110,12 @@ OpenCV is pinned to 4.9 through 4.13 in `requirements.txt`. See the note under
 
 ### Run on an Image
 
+Put your own image in `tag_images/` (the folder is empty in a fresh clone).
+Output files are named after the image, or after `--out` if you pass it.
+
 ```
 python3 apriltag_runner.py \
-  --image tag_images/test_tag.png \
+  --image tag_images/my_tag.png \
   --save-debug \
   --tag-size 0.025 \
   --fx 1200 --fy 1200 --cx 640 --cy 512
@@ -124,9 +127,9 @@ This will:
 * Print detections to the terminal
 * Save:
 
-  * `tag_image_gray.png`
-  * `tag_image_overlay.png`
-  * `tag_image_edges_overlay.png`
+  * `my_tag_gray.png`
+  * `my_tag_overlay.png`
+  * `my_tag_edges_overlay.png`
 
 ---
 
