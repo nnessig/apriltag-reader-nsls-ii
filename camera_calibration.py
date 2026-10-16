@@ -16,8 +16,8 @@ import argparse
 import glob
 import os
 import sys
+
 import cv2
-import numpy as np
 
 
 def main():
@@ -25,20 +25,23 @@ def main():
     ap = argparse.ArgumentParser()
 
     # Folder containing calibration images
-    ap.add_argument("--images-dir", default="calibration_images",
-                    help="Folder containing calibration images")
+    ap.add_argument(
+        "--images-dir", default="calibration_images", help="Folder containing calibration images"
+    )
 
     # Output yaml file name for saving calibration results
-    ap.add_argument("--out", default="output/camera_charuco_calib.yaml",
-                    help="Output YAML file")
+    ap.add_argument("--out", default="output/camera_charuco_calib.yaml", help="Output YAML file")
 
     # Optionally show detections while the script runs
-    ap.add_argument("--show", action="store_true",
-                    help="Show detections while running")
+    ap.add_argument("--show", action="store_true", help="Show detections while running")
 
     # Minimum number of detected ArUco markers required to keep a frame
-    ap.add_argument("--min-markers", type=int, default=2,
-                    help="Minimum detected ArUco markers to accept a frame")
+    ap.add_argument(
+        "--min-markers",
+        type=int,
+        default=2,
+        help="Minimum detected ArUco markers to accept a frame",
+    )
 
     args = ap.parse_args()
 
@@ -55,18 +58,15 @@ def main():
 
     # Create the Charuco board object from those settings
     board = cv2.aruco.CharucoBoard(
-        (squares_x, squares_y),
-        square_length_m,
-        marker_length_m,
-        dictionary
+        (squares_x, squares_y), square_length_m, marker_length_m, dictionary
     )
 
     # Automatically load all png/jpg/jpeg images from the selected images folder
     images_dir = os.path.abspath(args.images_dir)
     img_paths = sorted(
-        glob.glob(os.path.join(images_dir, "*.png")) +
-        glob.glob(os.path.join(images_dir, "*.jpg")) +
-        glob.glob(os.path.join(images_dir, "*.jpeg"))
+        glob.glob(os.path.join(images_dir, "*.png"))
+        + glob.glob(os.path.join(images_dir, "*.jpg"))
+        + glob.glob(os.path.join(images_dir, "*.jpeg"))
     )
 
     # Stop immediately if no images were found
@@ -133,7 +133,9 @@ def main():
         if use_new_api:
             corners, ids, rejected = detector.detectMarkers(gray)
         else:
-            corners, ids, rejected = cv2.aruco.detectMarkers(gray, dictionary, parameters=detector_params)
+            corners, ids, rejected = cv2.aruco.detectMarkers(
+                gray, dictionary, parameters=detector_params
+            )
 
         # Skip frame if not enough markers were found
         if ids is None or len(ids) < args.min_markers:
@@ -158,10 +160,7 @@ def main():
         else:
             # Older API interpolates Charuco corners from marker detections
             retval, charuco_corners, charuco_ids = cv2.aruco.interpolateCornersCharuco(
-                markerCorners=corners,
-                markerIds=ids,
-                image=gray,
-                board=board
+                markerCorners=corners, markerIds=ids, image=gray, board=board
             )
 
         # Need at least 4 Charuco corners for a frame to be useful
@@ -205,14 +204,16 @@ def main():
     # Run Charuco calibration
     # Newer OpenCV has an extended version that also returns extra stats
     if hasattr(cv2.aruco, "calibrateCameraCharucoExtended"):
-        rms, K, D, rvecs, tvecs, stdI, stdE, perViewErrors = cv2.aruco.calibrateCameraCharucoExtended(
-            charucoCorners=all_charuco_corners,
-            charucoIds=all_charuco_ids,
-            board=board,
-            imageSize=image_size,
-            cameraMatrix=K_init,
-            distCoeffs=D_init,
-            flags=flags
+        rms, K, D, rvecs, tvecs, stdI, stdE, perViewErrors = (
+            cv2.aruco.calibrateCameraCharucoExtended(
+                charucoCorners=all_charuco_corners,
+                charucoIds=all_charuco_ids,
+                board=board,
+                imageSize=image_size,
+                cameraMatrix=K_init,
+                distCoeffs=D_init,
+                flags=flags,
+            )
         )
     else:
         # Older version returns only the main calibration outputs
@@ -223,7 +224,7 @@ def main():
             imageSize=image_size,
             cameraMatrix=K_init,
             distCoeffs=D_init,
-            flags=flags
+            flags=flags,
         )
 
     # Extract intrinsic parameters from camera matrix
@@ -237,7 +238,7 @@ def main():
     print("D (dist coeffs):\n", D.reshape(-1))
 
     # Print intrinsics in a format that can be pasted into the AprilTag runner
-    print(f"\nUse these in AprilTag runner:")
+    print("\nUse these in AprilTag runner:")
     print(f"  --fx {fx:.6f} --fy {fy:.6f} --cx {cx:.6f} --cy {cy:.6f}")
     print(f"Image size used: {image_size[0]}x{image_size[1]} (WxH)")
 

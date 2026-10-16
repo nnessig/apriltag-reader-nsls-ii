@@ -17,28 +17,31 @@
 # Intended for use in real experimental workflows where repeatability,
 # debugging, and ROS integration are important.
 
+import argparse
+import math
 import os
+import queue
 import sys
 import time
-import math
-import argparse
-import numpy as np
+
 import cv2
-import queue
+import numpy as np
 
 # ROS 2 imports for publishing tag IDs, poses, and TF frames
 import rclpy
-from rclpy.node import Node
-from std_msgs.msg import Int32MultiArray
-from geometry_msgs.msg import PoseArray, Pose, Point, Quaternion, TransformStamped
 import tf2_ros
+from geometry_msgs.msg import Point, Pose, PoseArray, Quaternion, TransformStamped
+from std_msgs.msg import Int32MultiArray
 
 # Try importing the AprilTag detector implementation
 # pupil_apriltags is used here for speed and stability
 try:
     from pupil_apriltags import Detector
-except ImportError as e:
-    print("ERROR: pupil_apriltags not found. Install via: pip install pupil-apriltags", file=sys.stderr)
+except ImportError:
+    print(
+        "ERROR: pupil_apriltags not found. Install via: pip install pupil-apriltags",
+        file=sys.stderr,
+    )
     raise
 
 # Cache detector instances so the detector does not need to be recreated
@@ -49,6 +52,7 @@ _DETECTOR_CACHE = {}
 _vimba_available = False
 try:
     import vmbpy as vmb
+
     _vimba_available = True
 except Exception:
     pass
@@ -57,6 +61,7 @@ except Exception:
 # ----------------------------
 # Image preprocessing helpers
 # ----------------------------
+
 
 def apply_clahe(gray, clip_limit=3.0, grid=(8, 8)):
     # Improve local contrast using CLAHE
@@ -105,6 +110,7 @@ def canny_edges(gray):
 # Drawing helpers
 # ----------------------------
 
+
 def draw_detections(gray, detections, color=(0, 255, 0)):
     # Draw tag outlines, centers, and IDs on a grayscale image
     out = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
@@ -129,7 +135,7 @@ def draw_detections(gray, detections, color=(0, 255, 0)):
             0.5,
             (30, 30, 255),
             1,
-            cv2.LINE_AA
+            cv2.LINE_AA,
         )
 
     return out
@@ -145,6 +151,7 @@ def draw_edges_overlay(gray, edges):
 # ----------------------------
 # Pose helper (optional)
 # ----------------------------
+
 
 def pose_strings(det, K, tag_size):
     # Convert a detected tag pose into a readable translation + roll/pitch/yaw string
@@ -174,6 +181,7 @@ def pose_strings(det, K, tag_size):
 # AprilTag detection core
 # ----------------------------
 
+
 def detect_tags(
     gray,
     families,
@@ -187,7 +195,7 @@ def detect_tags(
     fx,
     fy,
     cx,
-    cy
+    cy,
 ):
     # Reuse a detector if one with the same settings already exists
     key = (families, nthreads, decimate, sigma, bool(refine_edges), decode_sharpening)
@@ -226,22 +234,20 @@ def detect_tags(
 # File I/O helpers
 # ----------------------------
 
+
 def write_debug_images(base, gray, edges, overlay, edges_overlay):
     # Save the grayscale image, detection overlay, and edge overlay
     cv2.imwrite(f"{base}_gray.png", gray)
     cv2.imwrite(f"{base}_overlay.png", overlay)
     cv2.imwrite(f"{base}_edges_overlay.png", edges_overlay)
 
-    return [
-        f"{base}_gray.png",
-        f"{base}_overlay.png",
-        f"{base}_edges_overlay.png"
-    ]
+    return [f"{base}_gray.png", f"{base}_overlay.png", f"{base}_edges_overlay.png"]
 
 
 # ----------------------------
 # ROS / math helpers
 # ----------------------------
+
 
 def rotation_matrix_to_quaternion(R):
     # Convert a 3x3 rotation matrix into a quaternion
@@ -300,14 +306,16 @@ def filter_pose(tag_id, t, args):
 # Camera acquisition (Vimba X)
 # ----------------------------
 
-def run_camera(cam_id, args, ros_tag_pub=None, ros_pose_pub=None, ros_node=None, tf_broadcaster=None):
+
+def run_camera(
+    cam_id, args, ros_tag_pub=None, ros_pose_pub=None, ros_node=None, tf_broadcaster=None
+):
     # Camera mode requires Vimba X support
     if not _vimba_available:
         print("ERROR: vmbpy (Vimba X) not available.", file=sys.stderr)
         sys.exit(1)
 
     # Small queue to hold the latest frames from the camera callback
-    import queue
     q = queue.Queue(maxsize=2)
 
     def handler(cam, stream, frame):
@@ -336,7 +344,10 @@ def run_camera(cam_id, args, ros_tag_pub=None, ros_pose_pub=None, ros_node=None,
         cam = next((c for c in cams if c.get_id() == cam_id), None)
 
         if cam is None:
-            print(f"ERROR: Camera {cam_id} not found. Available: {[c.get_id() for c in cams]}", file=sys.stderr)
+            print(
+                f"ERROR: Camera {cam_id} not found. Available: {[c.get_id() for c in cams]}",
+                file=sys.stderr,
+            )
             sys.exit(1)
 
         with cam:
@@ -385,9 +396,11 @@ def run_camera(cam_id, args, ros_tag_pub=None, ros_pose_pub=None, ros_node=None,
                         gray = preprocess(img, args.clahe, args.sharpen, args.upscale)
 
                         # Pose estimation only works if tag size and camera intrinsics are all provided
-                        do_pose = (
-                            args.tag_size is not None and
-                            None not in (args.fx, args.fy, args.cx, args.cy)
+                        do_pose = args.tag_size is not None and None not in (
+                            args.fx,
+                            args.fy,
+                            args.cx,
+                            args.cy,
                         )
 
                         # Run AprilTag detection
@@ -404,7 +417,7 @@ def run_camera(cam_id, args, ros_tag_pub=None, ros_pose_pub=None, ros_node=None,
                             args.fx,
                             args.fy,
                             args.cx,
-                            args.cy
+                            args.cy,
                         )
 
                         # Draw detection results for optional preview/debug
@@ -462,13 +475,9 @@ def run_camera(cam_id, args, ros_tag_pub=None, ros_pose_pub=None, ros_node=None,
 
                                 pose = Pose()
                                 pose.position = Point(
-                                    x=float(t_f[0]),
-                                    y=float(t_f[1]),
-                                    z=float(t_f[2])
+                                    x=float(t_f[0]), y=float(t_f[1]), z=float(t_f[2])
                                 )
-                                pose.orientation = Quaternion(
-                                    x=qx, y=qy, z=qz, w=qw
-                                )
+                                pose.orientation = Quaternion(x=qx, y=qy, z=qz, w=qw)
                                 pose_array.poses.append(pose)
 
                                 # Also broadcast a TF frame for each detected tag
@@ -517,32 +526,45 @@ def run_camera(cam_id, args, ros_tag_pub=None, ros_pose_pub=None, ros_node=None,
                                 if ids == getattr(run_camera, "_prev_printed_ids", None):
                                     should_print = False
 
-                            if getattr(args, "min_streak", 1) > 1 and run_camera._streak < args.min_streak:
+                            if (
+                                getattr(args, "min_streak", 1) > 1
+                                and run_camera._streak < args.min_streak
+                            ):
                                 should_print = False
                         else:
-                            if not getattr(args, "only_on_change", False) and (frame_idx % interval == 0):
+                            if not getattr(args, "only_on_change", False) and (
+                                frame_idx % interval == 0
+                            ):
                                 should_print = True
 
                         # Print detection summary and optionally save debug images
                         if should_print:
                             if ids:
-                                if getattr(args, "save_debug", False) and not getattr(args, "preview", False):
+                                if getattr(args, "save_debug", False) and not getattr(
+                                    args, "preview", False
+                                ):
                                     edges = canny_edges(gray)
                                     edges_overlay = draw_edges_overlay(gray, edges)
-                                    written = write_debug_images(base, gray, edges, overlay, edges_overlay)
+                                    written = write_debug_images(
+                                        base, gray, edges, overlay, edges_overlay
+                                    )
                                     print(
                                         f"[{frame_idx:06d}] detections={len(detections)} "
                                         f"ids={ids} -> {', '.join(os.path.basename(w) for w in written)}"
                                     )
                                 else:
-                                    print(f"[{frame_idx:06d}] detections={len(detections)} ids={ids}")
+                                    print(
+                                        f"[{frame_idx:06d}] detections={len(detections)} ids={ids}"
+                                    )
 
                                 run_camera._prev_printed_ids = ids
                             else:
                                 # Print quick image stats if no tags were found
                                 mean_gray = float(np.mean(gray))
                                 lapvar = float(cv2.Laplacian(gray, cv2.CV_64F).var())
-                                print(f"[{frame_idx:06d}] detections=0 mean={mean_gray:.1f} lapvar={lapvar:.1f}")
+                                print(
+                                    f"[{frame_idx:06d}] detections=0 mean={mean_gray:.1f} lapvar={lapvar:.1f}"
+                                )
 
                         # Show live preview if requested
                         if getattr(args, "preview", False):
@@ -574,6 +596,7 @@ def run_camera(cam_id, args, ros_tag_pub=None, ros_pose_pub=None, ros_node=None,
 # Image path mode
 # ----------------------------
 
+
 def run_image(image_path, args):
     # Load a single image from disk
     img = cv2.imread(image_path, cv2.IMREAD_UNCHANGED)
@@ -584,10 +607,7 @@ def run_image(image_path, args):
     edges = canny_edges(gray)
 
     # Pose estimation is only enabled if full camera intrinsics and tag size are given
-    do_pose = (
-        args.tag_size is not None and
-        None not in (args.fx, args.fy, args.cx, args.cy)
-    )
+    do_pose = args.tag_size is not None and None not in (args.fx, args.fy, args.cx, args.cy)
 
     # Run AprilTag detection on the image
     detections = detect_tags(
@@ -603,7 +623,7 @@ def run_image(image_path, args):
         args.fx,
         args.fy,
         args.cx,
-        args.cy
+        args.cy,
     )
 
     # Build visualization images
@@ -620,7 +640,9 @@ def run_image(image_path, args):
     # Save debug images if requested
     if getattr(args, "save_debug", False):
         written = write_debug_images(base, gray, edges, overlay, edges_overlay)
-        print(f"[INFO] Image detections={len(detections)} -> {', '.join(os.path.basename(w) for w in written)}")
+        print(
+            f"[INFO] Image detections={len(detections)} -> {', '.join(os.path.basename(w) for w in written)}"
+        )
     else:
         print(f"[INFO] Image detections={len(detections)} (no debug images written)")
 
@@ -634,25 +656,37 @@ def run_image(image_path, args):
 # Main / CLI
 # ----------------------------
 
+
 def parse_args():
     # Set up command line arguments
     p = argparse.ArgumentParser(description="AprilTag detector for image or Vimba X camera")
 
     # User must choose exactly one input source: image or live camera
     src = p.add_mutually_exclusive_group(required=True)
-    src.add_argument("--image", type=str, help="Path to input image (e.g., ~/Downloads/test_tag.png)")
+    src.add_argument(
+        "--image", type=str, help="Path to input image (e.g., ~/Downloads/test_tag.png)"
+    )
     src.add_argument("--cam-id", type=str, help="Vimba camera ID (e.g., DEV_000F315BCAB1)")
 
     # Detector configuration
-    p.add_argument("--families", type=str, default="tag36h11", help="Tag families (comma-separated if multiple)")
+    p.add_argument(
+        "--families",
+        type=str,
+        default="tag36h11",
+        help="Tag families (comma-separated if multiple)",
+    )
     p.add_argument("--decimate", type=float, default=1.0, help="quad_decimate")
     p.add_argument("--sigma", type=float, default=0.0, help="quad_sigma")
     p.add_argument("--nthreads", type=int, default=4, help="detector threads")
     p.add_argument("--refine-edges", action="store_true", help="Enable refine_edges")
-    p.add_argument("--decode-sharpening", type=float, default=0.25, help="decode_sharpening (0..1+)")
+    p.add_argument(
+        "--decode-sharpening", type=float, default=0.25, help="decode_sharpening (0..1+)"
+    )
 
     # Image preprocessing options
-    p.add_argument("--upscale", type=float, default=1.0, help="Pre-detection upscale factor (e.g., 2.0)")
+    p.add_argument(
+        "--upscale", type=float, default=1.0, help="Pre-detection upscale factor (e.g., 2.0)"
+    )
     p.add_argument("--clahe", action="store_true", help="Apply CLAHE")
     p.add_argument("--sharpen", action="store_true", help="Apply unsharp mask")
 
@@ -661,28 +695,53 @@ def parse_args():
     p.add_argument("--gain", type=float, default=None, help="Gain (dB)")
 
     # Pose estimation inputs
-    p.add_argument("--tag-size", type=float, default=None, help="Tag size in meters (needed for pose)")
+    p.add_argument(
+        "--tag-size", type=float, default=None, help="Tag size in meters (needed for pose)"
+    )
     p.add_argument("--fx", type=float, default=None, help="Camera fx (pixels)")
     p.add_argument("--fy", type=float, default=None, help="Camera fy (pixels)")
     p.add_argument("--cx", type=float, default=None, help="Camera cx (pixels)")
     p.add_argument("--cy", type=float, default=None, help="Camera cy (pixels)")
 
     # Output and run behavior
-    p.add_argument("--out", type=str, default=None, help="Base name for output files (no extension)")
-    p.add_argument("--single", action="store_true", help="In camera mode, grab a single frame and exit")
-    p.add_argument("--no-save", action="store_true", help="Do not write any image files (camera mode, legacy)")
-    p.add_argument("--preview", action="store_true", help="Show a live preview window with detections (camera mode)")
-    p.add_argument("--save-debug", action="store_true", help="Write debug PNG images (gray/overlay/edges)")
+    p.add_argument(
+        "--out", type=str, default=None, help="Base name for output files (no extension)"
+    )
+    p.add_argument(
+        "--single", action="store_true", help="In camera mode, grab a single frame and exit"
+    )
+    p.add_argument(
+        "--no-save", action="store_true", help="Do not write any image files (camera mode, legacy)"
+    )
+    p.add_argument(
+        "--preview",
+        action="store_true",
+        help="Show a live preview window with detections (camera mode)",
+    )
+    p.add_argument(
+        "--save-debug", action="store_true", help="Write debug PNG images (gray/overlay/edges)"
+    )
 
     # ROS output options
     p.add_argument("--ros", action="store_true", help="Publish detected tags to ROS 2")
     p.add_argument("--frame-id", type=str, default="camera", help="Frame ID for published poses")
-    p.add_argument("--ros-rate", type=float, default=20.0, help="Max ROS publish rate in Hz (<=0 for no limit)")
+    p.add_argument(
+        "--ros-rate", type=float, default=20.0, help="Max ROS publish rate in Hz (<=0 for no limit)"
+    )
 
     # Optional pose filtering settings
-    p.add_argument("--pose-window", type=int, default=1, help="Number of frames to average per tag pose")
-    p.add_argument("--pose-outlier-thresh", type=float, default=0.0, help="Outlier threshold in meters (0=off)")
-    p.add_argument("--pose-average", type=str, default="mean", help="Pose averaging mode: mean, median, or last")
+    p.add_argument(
+        "--pose-window", type=int, default=1, help="Number of frames to average per tag pose"
+    )
+    p.add_argument(
+        "--pose-outlier-thresh", type=float, default=0.0, help="Outlier threshold in meters (0=off)"
+    )
+    p.add_argument(
+        "--pose-average",
+        type=str,
+        default="mean",
+        help="Pose averaging mode: mean, median, or last",
+    )
 
     return p.parse_args()
 
@@ -711,7 +770,7 @@ def main():
                 ros_tag_pub=tag_pub,
                 ros_pose_pub=pose_pub,
                 ros_node=node,
-                tf_broadcaster=tf_broadcaster
+                tf_broadcaster=tf_broadcaster,
             )
         finally:
             node.destroy_node()
