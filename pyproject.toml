@@ -3,11 +3,13 @@ name = "vimba-apriltag-reader"
 version = "0.1.0"
 description = "AprilTag detection, pose estimation, and camera calibration for Allied Vision (Vimba X) cameras, with ROS 2 publishing."
 readme = "README.md"
+license = "BSD-3-Clause"
+license-files = ["LICENSE", "LICENSE_README"]
 requires-python = ">=3.10"
 dependencies = [
     "numpy",
-    "opencv-python",
-    "opencv-contrib-python",
+    "opencv-python>=4.9,<4.14",
+    "opencv-contrib-python>=4.9,<4.14",
     "pupil-apriltags",
 ]
 
@@ -16,7 +18,11 @@ dependencies = [
 # dependencies are mirrored in requirements.txt for the Dockerfile.
 
 [dependency-groups]
+test = [
+    "pytest>=8",
+]
 dev = [
+    { include-group = "test" },
     "pre-commit",
     "ruff",
 ]
@@ -28,4 +34,19 @@ line-length = 100
 select = ["B", "E", "F", "I", "UP"]
 ignore = [
     "E501",  # line length is handled by the formatter
+]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+addopts = ["-ra", "--strict-markers", "--strict-config"]
+xfail_strict = true
+filterwarnings = ["error"]
+log_level = "INFO"
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.repo-review]
+ignore = [
+    "PP002", # Not an installable package, so there is no [build-system] table
+    "PP003", # Same reason: no build requirements to check
 ]
