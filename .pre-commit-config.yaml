@@ -21,3 +21,8 @@ repos:
     rev: v2.4.3
     hooks:
       - id: codespell
+
+  - repo: https://github.com/zizmorcore/zizmor-pre-commit
+    rev: v1.31.1
+    hooks:
+      - id: zizmor

@@ -34,3 +34,5 @@ tag_images/*
 *_edges_overlay.png
 # Tooling configs that must stay tracked
 !.pre-commit-config.yaml
+!.github/**/*.yml
+!zizmor.yaml
