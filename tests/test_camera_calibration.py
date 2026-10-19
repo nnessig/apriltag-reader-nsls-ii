@@ -87,10 +87,15 @@ def test_min_markers_threshold_rejects_frames(tmp_path):
 
     result = subprocess.run(
         [
-            sys.executable, "-I", str(SCRIPT),
-            "--images-dir", str(tmp_path),
-            "--out", str(tmp_path / "calib.yaml"),
-            "--min-markers", "50",   # impossible threshold
+            sys.executable,
+            "-I",
+            str(SCRIPT),
+            "--images-dir",
+            str(tmp_path),
+            "--out",
+            str(tmp_path / "calib.yaml"),
+            "--min-markers",
+            "50",  # impossible threshold
         ],
         capture_output=True,
         text=True,
