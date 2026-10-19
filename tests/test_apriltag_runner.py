@@ -35,12 +35,12 @@ def reset_pose_history():
     ar._POSE_HISTORY.clear()
 
 
-def detect(gray, do_pose=False, tag_size=None, fx=None, fy=None, cx=None, cy=None):
+def detect(gray, do_pose=False, tag_size=None, fx=None, fy=None, cx=None, cy=None, **kwargs):
     return ar.detect_tags(
         gray,
         families="tag36h11",
         nthreads=1,
-        decimate=1.0,
+        decimate=kwargs.get("decimate", 1.0),
         sigma=0.0,
         refine_edges=False,
         decode_sharpening=0.25,
@@ -216,9 +216,9 @@ def test_detects_multiple_tags():
     tag1 = cv2.aruco.generateImageMarker(dictionary, 1, 150)
     tag2 = cv2.aruco.generateImageMarker(dictionary, 2, 150)
 
-    canvas = np.full((400, 400), 255, dtype=np.uint8)
+    canvas = np.full((450, 450), 255, dtype=np.uint8)
     canvas[50:200, 50:200] = tag1
-    canvas[200:350, 200:350] = tag2
+    canvas[230:380, 230:380] = tag2
 
     results = detect(canvas)
     ids = sorted([d.tag_id for d in results])
@@ -243,8 +243,8 @@ def test_detector_is_cached(tag_image):
 # Test that the detector cache invalidates when parameters change
 def test_detector_cache_changes_with_params(tag_image):
     ar._DETECTOR_CACHE.clear()
-    detect(tag_image)                     # default settings
-    detect(tag_image, decimate=2.0)       # changed detector parameter
+    detect(tag_image)  # default settings
+    detect(tag_image, decimate=2.0)  # changed detector parameter
     assert len(ar._DETECTOR_CACHE) == 2
 
 
@@ -268,13 +268,13 @@ def test_pose_rotates_with_image(tag_image):
     rotated = cv2.rotate(tag_image, cv2.ROTATE_90_CLOCKWISE)
 
     det1 = detect(tag_image, do_pose=True, tag_size=0.05, fx=800, fy=800, cx=200, cy=200)[0]
-    det2 = detect(rotated,   do_pose=True, tag_size=0.05, fx=800, fy=800, cx=200, cy=200)[0]
+    det2 = detect(rotated, do_pose=True, tag_size=0.05, fx=800, fy=800, cx=200, cy=200)[0]
 
     rpy1 = det1.pose_rpy
     rpy2 = det2.pose_rpy
     delta_yaw = abs(rpy2[2] - rpy1[2])
 
-    assert delta_yaw == pytest.approx(np.pi/2, rel=0.2)
+    assert delta_yaw == pytest.approx(np.pi / 2, rel=0.2)
 
 
 # Verifies the presence and formatting of expected fields
