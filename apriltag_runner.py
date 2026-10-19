@@ -83,10 +83,11 @@ def preprocess(img_bgr, use_clahe, use_sharpen, upscale=1.0):
     else:
         gray = img_bgr.copy()
 
-    # Optionally upscale before detection to help with small tags
-    if upscale and upscale > 1.0:
+    # Optionally upscale or downscale before detection to help with small tags
+    if upscale and upscale != 1.0:
         h, w = gray.shape[:2]
-        gray = cv2.resize(gray, (int(w * upscale), int(h * upscale)), interpolation=cv2.INTER_CUBIC)
+        interp = cv2.INTER_CUBIC if upscale > 1.0 else cv2.INTER_AREA
+        gray = cv2.resize(gray, (int(w * upscale), int(h * upscale)), interpolation=interp)
 
     # Optionally apply contrast enhancement
     if use_clahe:
@@ -95,6 +96,8 @@ def preprocess(img_bgr, use_clahe, use_sharpen, upscale=1.0):
     # Optionally sharpen the image
     if use_sharpen:
         gray = unsharp_mask(gray, amount=1.0, radius=1.5)
+
+    gray = np.ascontiguousarray(gray)
 
     return gray
 
@@ -182,20 +185,35 @@ def pose_strings(det, K, tag_size):
 # ----------------------------
 
 
+class _WrappedDetection:
+    def __init__(self, det):
+        self.__dict__.update(det.__dict__)
+
+    @property
+    def pose_rpy(self):
+        R = self.pose_R
+        sy = math.sqrt(R[0, 0] ** 2 + R[1, 0] ** 2)
+        pitch = math.atan2(-R[2, 0], sy)
+        yaw = math.atan2(R[1, 0], R[0, 0])
+        roll = math.atan2(R[2, 1], R[2, 2])
+        return np.array([roll, pitch, yaw])
+
+
 def detect_tags(
     gray,
-    families,
-    nthreads,
-    decimate,
-    sigma,
-    refine_edges,
-    decode_sharpening,
-    do_pose,
-    tag_size,
-    fx,
-    fy,
-    cx,
-    cy,
+    families="tag36h11",
+    nthreads=1,
+    decimate=1.0,
+    sigma=0.0,
+    refine_edges=False,
+    decode_sharpening=0.25,
+    do_pose=False,
+    tag_size=None,
+    fx=None,
+    fy=None,
+    cx=None,
+    cy=None,
+    **kwargs,
 ):
     # Reuse a detector if one with the same settings already exists
     key = (families, nthreads, decimate, sigma, bool(refine_edges), decode_sharpening)
@@ -227,7 +245,7 @@ def detect_tags(
             estimate_tag_pose=False,
         )
 
-    return results
+    return [_WrappedDetection(d) for d in results]
 
 
 # ----------------------------
