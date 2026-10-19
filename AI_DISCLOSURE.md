@@ -120,3 +120,5 @@ project maintainers. Inclusion of AI-generated material does not
 substitute for human accountability: the contributing staff member is
 responsible for the correctness and appropriateness of every merged
 change.
+
+Routine editing assistance such as spell‑checking, rewording sentences, or adjusting formatting is not considered a meaningful contribution and does not result in a Co-Authored-By tag. Co-authorship is reserved only for substantive AI-generated changes that are intentionally incorporated into the project by a human reviewer.
