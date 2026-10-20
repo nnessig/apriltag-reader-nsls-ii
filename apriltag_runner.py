@@ -83,6 +83,10 @@ def preprocess(img_bgr, use_clahe, use_sharpen, upscale=1.0):
     else:
         gray = img_bgr.copy()
 
+    # The detector only accepts 8-bit images, so bring 16-bit frames down to 8-bit
+    if gray.dtype == np.uint16:
+        gray = (gray >> 8).astype(np.uint8)
+
     # Optionally upscale or downscale before detection to help with small tags
     if upscale and upscale != 1.0:
         h, w = gray.shape[:2]
@@ -156,22 +160,28 @@ def draw_edges_overlay(gray, edges):
 # ----------------------------
 
 
+def rotation_matrix_to_rpy(R):
+    # Convert a rotation matrix to (roll, pitch, yaw) in radians using the ZYX
+    # convention: R = Rz(yaw) @ Ry(pitch) @ Rx(roll)
+    sy = math.sqrt(R[0, 0] * R[0, 0] + R[1, 0] * R[1, 0])
+
+    if sy >= 1e-6:
+        roll = math.atan2(R[2, 1], R[2, 2])
+        yaw = math.atan2(R[1, 0], R[0, 0])
+    else:
+        # Gimbal lock (pitch near +/-90 deg): roll and yaw are not separable,
+        # so fold everything into roll and report yaw as zero
+        roll = math.atan2(-R[1, 2], R[1, 1])
+        yaw = 0.0
+    pitch = math.atan2(-R[2, 0], sy)
+
+    return roll, pitch, yaw
+
+
 def pose_strings(det, K, tag_size):
     # Convert a detected tag pose into a readable translation + roll/pitch/yaw string
-    R = det.pose_R
     t = det.pose_t.reshape(-1)
-
-    sy = math.sqrt(R[0, 0] * R[0, 0] + R[1, 0] * R[1, 0])
-    singular = sy < 1e-6
-
-    if not singular:
-        yaw = math.degrees(math.atan2(R[2, 1], R[2, 2]))
-        pitch = math.degrees(math.atan2(-R[2, 0], sy))
-        roll = math.degrees(math.atan2(R[1, 0], R[0, 0]))
-    else:
-        yaw = math.degrees(math.atan2(-R[1, 2], R[1, 1]))
-        pitch = math.degrees(math.atan2(-R[2, 0], sy))
-        roll = 0.0
+    roll, pitch, yaw = (math.degrees(a) for a in rotation_matrix_to_rpy(det.pose_R))
 
     return (
         f"ID {det.tag_id}: "
@@ -191,12 +201,14 @@ class _WrappedDetection:
 
     @property
     def pose_rpy(self):
-        R = self.pose_R
-        sy = math.sqrt(R[0, 0] ** 2 + R[1, 0] ** 2)
-        pitch = math.atan2(-R[2, 0], sy)
-        yaw = math.atan2(R[1, 0], R[0, 0])
-        roll = math.atan2(R[2, 1], R[2, 2])
-        return np.array([roll, pitch, yaw])
+        return np.array(rotation_matrix_to_rpy(self.pose_R))
+
+
+def scale_intrinsics(fx, fy, cx, cy, upscale):
+    # Preprocessing can resize the image, so the camera intrinsics must be scaled to match
+    if None in (fx, fy, cx, cy) or not upscale or upscale == 1.0:
+        return fx, fy, cx, cy
+    return fx * upscale, fy * upscale, cx * upscale, cy * upscale
 
 
 def detect_tags(
@@ -215,6 +227,9 @@ def detect_tags(
     cy=None,
     **kwargs,
 ):
+    # The CLI documents comma-separated families, but the detector wants them space-separated
+    families = " ".join(families.replace(",", " ").split())
+
     # Reuse a detector if one with the same settings already exists
     key = (families, nthreads, decimate, sigma, bool(refine_edges), decode_sharpening)
     detector = _DETECTOR_CACHE.get(key)
@@ -284,6 +299,8 @@ def rotation_matrix_to_quaternion(R):
 
 # Stores recent tag pose history for optional smoothing
 _POSE_HISTORY = {}
+# Counts consecutive outlier rejections per tag
+_POSE_REJECTS = {}
 
 
 def filter_pose(tag_id, t, args):
@@ -300,7 +317,14 @@ def filter_pose(tag_id, t, args):
         arr_prev = np.stack(hist, axis=0)
         mean_prev = arr_prev.mean(axis=0)
         if np.linalg.norm(t - mean_prev) > thresh:
-            return None
+            # If every recent pose has been rejected, the history itself is probably the
+            # outlier (e.g. a bad first detection), so start over from the new pose
+            rejects = _POSE_REJECTS.get(tag_id, 0) + 1
+            if rejects < window:
+                _POSE_REJECTS[tag_id] = rejects
+                return None
+            hist = []
+    _POSE_REJECTS[tag_id] = 0
 
     # Append current pose and keep only the requested window length
     hist.append(t)
@@ -422,6 +446,9 @@ def run_camera(
                         )
 
                         # Run AprilTag detection
+                        fx, fy, cx, cy = scale_intrinsics(
+                            args.fx, args.fy, args.cx, args.cy, args.upscale
+                        )
                         detections = detect_tags(
                             gray,
                             args.families,
@@ -432,10 +459,10 @@ def run_camera(
                             args.decode_sharpening,
                             do_pose,
                             args.tag_size,
-                            args.fx,
-                            args.fy,
-                            args.cx,
-                            args.cy,
+                            fx,
+                            fy,
+                            cx,
+                            cy,
                         )
 
                         # Draw detection results for optional preview/debug
@@ -618,7 +645,9 @@ def run_camera(
 def run_image(image_path, args):
     # Load a single image from disk
     img = cv2.imread(image_path, cv2.IMREAD_UNCHANGED)
-    assert img is not None, f"Cannot open {image_path}"
+    if img is None:
+        print(f"ERROR: Cannot open image: {image_path}", file=sys.stderr)
+        sys.exit(1)
 
     # Preprocess the image
     gray = preprocess(img, args.clahe, args.sharpen, args.upscale)
@@ -628,6 +657,7 @@ def run_image(image_path, args):
     do_pose = args.tag_size is not None and None not in (args.fx, args.fy, args.cx, args.cy)
 
     # Run AprilTag detection on the image
+    fx, fy, cx, cy = scale_intrinsics(args.fx, args.fy, args.cx, args.cy, args.upscale)
     detections = detect_tags(
         gray,
         args.families,
@@ -638,10 +668,10 @@ def run_image(image_path, args):
         args.decode_sharpening,
         do_pose,
         args.tag_size,
-        args.fx,
-        args.fy,
-        args.cx,
-        args.cy,
+        fx,
+        fy,
+        cx,
+        cy,
     )
 
     # Build visualization images

@@ -31,8 +31,10 @@ def tag_image():
 @pytest.fixture(autouse=True)
 def reset_pose_history():
     ar._POSE_HISTORY.clear()
+    ar._POSE_REJECTS.clear()
     yield
     ar._POSE_HISTORY.clear()
+    ar._POSE_REJECTS.clear()
 
 
 def detect(gray, do_pose=False, tag_size=None, fx=None, fy=None, cx=None, cy=None, **kwargs):
@@ -285,6 +287,134 @@ def test_pose_strings_format(tag_image):
     text = ar.pose_strings(det, None, 0.05)
     assert text.startswith(f"ID {TAG_ID}: t=[")
     assert "rpy=[" in text
+
+
+# Known rotations must come back as the same roll/pitch/yaw they were built from
+@pytest.mark.parametrize(
+    "roll, pitch, yaw",
+    [(0.3, 0.0, 0.0), (0.0, 0.4, 0.0), (0.0, 0.0, 0.5), (0.2, -0.6, 1.1), (-2.5, 0.3, 2.9)],
+)
+def test_rotation_matrix_to_rpy_round_trip(roll, pitch, yaw):
+    Rx = cv2.Rodrigues(np.array([roll, 0.0, 0.0]))[0]
+    Ry = cv2.Rodrigues(np.array([0.0, pitch, 0.0]))[0]
+    Rz = cv2.Rodrigues(np.array([0.0, 0.0, yaw]))[0]
+    got = ar.rotation_matrix_to_rpy(Rz @ Ry @ Rx)
+    assert got == pytest.approx((roll, pitch, yaw), abs=1e-9)
+
+
+# At pitch of +/-90 deg roll and yaw are ambiguous, but the result must stay finite
+def test_rotation_matrix_to_rpy_gimbal_lock():
+    R = cv2.Rodrigues(np.array([0.0, np.pi / 2, 0.0]))[0]
+    roll, pitch, yaw = ar.rotation_matrix_to_rpy(R)
+    assert pitch == pytest.approx(np.pi / 2)
+    assert np.isfinite(roll) and yaw == 0.0
+
+
+def render_tag_yawed(yaw_deg, z=0.8, tag_size=0.1, f=1000.0, size=(1280, 960)):
+    """Render a tag36h11 on a plane rotated about the camera y axis, through a pinhole camera."""
+    w, h = size
+    K = np.array([[f, 0, w / 2], [0, f, h / 2], [0, 0, 1.0]])
+    dictionary = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_APRILTAG_36h11)
+    marker = cv2.aruco.generateImageMarker(dictionary, TAG_ID, 160)
+    tex = cv2.copyMakeBorder(marker, 40, 40, 40, 40, cv2.BORDER_CONSTANT, value=255)
+    half = tag_size * tex.shape[0] / 160 / 2
+    obj = np.float32([[-half, -half, 0], [half, -half, 0], [half, half, 0], [-half, half, 0]])
+    rvec = np.array([0.0, np.radians(yaw_deg), 0.0])
+    tvec = np.array([0.0, 0.0, z])
+    pts, _ = cv2.projectPoints(obj, rvec, tvec, K, None)
+    th, tw = tex.shape
+    src = np.float32([[0, 0], [tw, 0], [tw, th], [0, th]])
+    H = cv2.getPerspectiveTransform(src, pts.reshape(4, 2).astype(np.float32))
+    img = cv2.warpPerspective(tex, H, size, flags=cv2.INTER_AREA, borderValue=200)
+    return img, f, w / 2, h / 2
+
+
+# Rendered at a known yaw: the printed rpy must put the tilt in pitch, not roll/yaw
+# (regression: roll and yaw were once swapped in pose_strings)
+def test_pose_strings_rpy_matches_known_tilt():
+    tilt = 30.0
+    img, f, cx, cy = render_tag_yawed(tilt)
+    (det,) = detect(img, do_pose=True, tag_size=0.1, fx=f, fy=f, cx=cx, cy=cy)
+
+    roll, pitch, yaw = np.degrees(det.pose_rpy)
+    # The detector's tag frame is flipped (x and y negated) relative to the plane
+    # frame, so the plane's y-rotation shows up as pitch of -tilt here.
+    assert abs(pitch) == pytest.approx(tilt, abs=1.5)
+    assert abs(abs(roll) - 180.0) < 1.5 or abs(roll) < 1.5
+    assert abs(yaw) < 1.5 or abs(abs(yaw) - 180.0) < 1.5
+
+    text = ar.pose_strings(det, None, 0.1)
+    assert f"rpy=[{roll:.1f},{pitch:.1f},{yaw:.1f}]" in text
+
+
+# Rendered at a known distance and offset: translation must match to a few mm
+def test_pose_translation_matches_rendered_geometry():
+    img, f, cx, cy = render_tag_yawed(25.0, z=0.6)
+    (det,) = detect(img, do_pose=True, tag_size=0.1, fx=f, fy=f, cx=cx, cy=cy)
+    assert det.tag_id == TAG_ID
+    assert det.pose_t.reshape(-1) == pytest.approx([0.0, 0.0, 0.6], abs=0.003)
+
+
+# A missing or unreadable image must exit with a message, not an AssertionError
+def test_run_image_missing_file_exits_with_error(tmp_path, capsys):
+    args = SimpleNamespace(clahe=False, sharpen=False, upscale=1.0)
+    with pytest.raises(SystemExit) as exc:
+        ar.run_image(str(tmp_path / "does_not_exist.png"), args)
+    assert exc.value.code == 1
+    assert "Cannot open image" in capsys.readouterr().err
+
+
+# Upscaling resizes the image, so pose must still come out in the original camera geometry
+@pytest.mark.parametrize("upscale", [0.5, 1.0, 2.0])
+def test_pose_is_independent_of_upscale(upscale):
+    img, f, cx, cy = render_tag_yawed(20.0, z=0.6)
+    gray = ar.preprocess(img, False, False, upscale)
+    fx, fy, cx2, cy2 = ar.scale_intrinsics(f, f, cx, cy, upscale)
+    (det,) = detect(gray, do_pose=True, tag_size=0.1, fx=fx, fy=fy, cx=cx2, cy=cy2)
+    assert det.pose_t.reshape(-1) == pytest.approx([0.0, 0.0, 0.6], abs=0.01)
+
+
+def test_scale_intrinsics_passthrough():
+    assert ar.scale_intrinsics(1, 2, 3, 4, 1.0) == (1, 2, 3, 4)
+    assert ar.scale_intrinsics(None, None, None, None, 2.0) == (None, None, None, None)
+    assert ar.scale_intrinsics(1, 2, 3, 4, 2.0) == (2, 4, 6, 8)
+
+
+# 16-bit frames (e.g. Mono12/Mono16 cameras) must be reduced to 8-bit rather than crash
+def test_preprocess_accepts_16bit_images(tag_image):
+    wide = tag_image.astype(np.uint16) * 257
+    gray = ar.preprocess(wide, True, True)
+    assert gray.dtype == np.uint8
+    assert len(detect(gray)) == 1
+
+
+# --families is documented as comma-separated, but the detector rejects commas outright.
+# Only single-family detection is asserted: pupil-apriltags 1.0.4 drops all but the last
+# family when several are given.
+def test_comma_separated_families_are_normalized(tag_image):
+    ar._DETECTOR_CACHE.clear()
+    assert [d.tag_id for d in ar.detect_tags(tag_image, families="tag36h11,")] == [TAG_ID]
+    ar.detect_tags(tag_image, families=" tag36h11 ")
+    assert len(ar._DETECTOR_CACHE) == 1
+
+
+# A bad first pose must not lock the filter into rejecting every later good pose
+def test_filter_pose_recovers_from_bad_first_pose():
+    args = SimpleNamespace(pose_window=3, pose_outlier_thresh=0.05, pose_average="mean")
+    good = np.array([0.0, 0.0, 1.0])
+    outputs = [ar.filter_pose(1, np.array([0.0, 0.0, 5.0]), args)]
+    outputs += [ar.filter_pose(1, good, args) for _ in range(4)]
+    assert outputs[-1] == pytest.approx(good)
+
+
+# A single genuine outlier is still rejected and does not disturb the history
+def test_filter_pose_still_rejects_single_outlier():
+    args = SimpleNamespace(pose_window=5, pose_outlier_thresh=0.05, pose_average="mean")
+    good = np.array([0.0, 0.0, 1.0])
+    for _ in range(3):
+        ar.filter_pose(1, good, args)
+    assert ar.filter_pose(1, np.array([0.0, 0.0, 3.0]), args) is None
+    assert ar.filter_pose(1, good, args) == pytest.approx(good)
 
 
 # ----------------------------

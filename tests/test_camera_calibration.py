@@ -118,3 +118,67 @@ def test_help_lists_documented_flags(flag):
         check=False,
     )
     assert flag in result.stdout
+
+
+# Renders the script's Charuco board (5x3, 5 mm squares, DICT_4X4_50) through a known
+# pinhole camera from several poses, so the recovered intrinsics can be checked
+# against ground truth instead of only checking that the script runs.
+TRUE_K = (1500.0, 1500.0, 640.0, 480.0)  # fx, fy, cx, cy
+IMAGE_SIZE = (1280, 960)
+SQUARE_M = 0.005
+
+
+def make_synthetic_calibration_images(out_dir, count=16, seed=0):
+    rng = np.random.default_rng(seed)
+    fx, fy, cx, cy = TRUE_K
+    K = np.array([[fx, 0, cx], [0, fy, cy], [0, 0, 1.0]])
+    dictionary = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50)
+    board = cv2.aruco.CharucoBoard((5, 3), SQUARE_M, 0.0035, dictionary)
+    tex = board.generateImage((1000, 600), marginSize=0, borderBits=1)
+    th, tw = tex.shape
+    half_w, half_h = 5 * SQUARE_M / 2, 3 * SQUARE_M / 2
+    obj = np.float32(
+        [[-half_w, -half_h, 0], [half_w, -half_h, 0], [half_w, half_h, 0], [-half_w, half_h, 0]]
+    )
+    src = np.float32([[0, 0], [tw, 0], [tw, th], [0, th]])
+    for i in range(count):
+        rvec = np.array(
+            [
+                rng.uniform(-0.6, 0.6),
+                rng.uniform(-0.6, 0.6),
+                rng.uniform(-0.5, 0.5),
+            ]
+        )
+        tvec = np.array(
+            [rng.uniform(-0.005, 0.005), rng.uniform(-0.004, 0.004), rng.uniform(0.09, 0.14)]
+        )
+        pts, _ = cv2.projectPoints(obj, rvec, tvec, K, None)
+        H = cv2.getPerspectiveTransform(src, pts.reshape(4, 2).astype(np.float32))
+        img = cv2.warpPerspective(tex, H, IMAGE_SIZE, flags=cv2.INTER_AREA, borderValue=200)
+        cv2.imwrite(str(out_dir / f"synthetic_{i:02d}.png"), img)
+
+
+# Recovered intrinsics must match the camera the images were rendered with
+def test_calibration_recovers_known_intrinsics(tmp_path):
+    images = tmp_path / "images"
+    images.mkdir()
+    make_synthetic_calibration_images(images)
+    out = tmp_path / "calib.yaml"
+
+    result = run_calibration(images, out)
+    assert result.returncode == 0, result.stderr
+
+    fs = cv2.FileStorage(str(out), cv2.FILE_STORAGE_READ)
+    K = fs.getNode("camera_matrix").mat()
+    rms = fs.getNode("rms").real()
+    fs.release()
+
+    fx, fy, cx, cy = TRUE_K
+    assert K[0, 0] == pytest.approx(fx, rel=0.03)
+    assert K[1, 1] == pytest.approx(fy, rel=0.03)
+    # The principal point is much less well constrained than focal length: the script
+    # fits free distortion from a small board, which trades off against cx/cy. Synthetic
+    # runs land 20-40 px off, so this only guards against gross errors.
+    assert K[0, 2] == pytest.approx(cx, abs=60)
+    assert K[1, 2] == pytest.approx(cy, abs=60)
+    assert rms < 1.0
