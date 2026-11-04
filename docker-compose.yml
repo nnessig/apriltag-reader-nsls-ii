@@ -5,7 +5,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: vimba-apriltag-reader:humble
+    image: vimba-apriltag-reader:jazzy
     container_name: vimba-apriltag-reader
     working_dir: /workspace
     stdin_open: true

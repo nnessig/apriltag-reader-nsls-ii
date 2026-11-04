@@ -3,7 +3,7 @@
 Per-repository agent instructions for the **Vimba AprilTag Reader**: a
 Python tool that detects AprilTags in still images or from an Allied
 Vision (AVT) camera via the Vimba X SDK, estimates 6-DoF poses, and can
-publish results to ROS 2. It runs in a ROS 2 Humble container.
+publish results to ROS 2. It runs in a ROS 2 Jazzy container.
 
 ## Git policy
 
@@ -54,7 +54,7 @@ Ask the user before any destructive operation, including:
 | `apriltag_runner.py` | Main tool: tag detection, pose estimation, Vimba X camera capture, ROS 2 publishing |
 | `camera_calibration.py` | Charuco camera calibration; writes intrinsics to YAML |
 | `check_container.py` | Prints which required and optional modules import cleanly |
-| `Dockerfile`, `docker-compose.yml`, `entrypoint.sh` | ROS 2 Humble container |
+| `Dockerfile`, `docker-compose.yml`, `entrypoint.sh` | ROS 2 Jazzy container |
 | `requirements.txt` | Python deps (`numpy`, `opencv-contrib-python`, `pupil-apriltags`) |
 | `calibration_images/`, `tag_images/`, `output/` | User data folders. Contents are gitignored; only `.gitkeep` is tracked |
 | `demo_resources/` | Demo images and a README for the demo video walkthrough |
@@ -124,7 +124,7 @@ it was actually run. Say what was and was not exercised.
 
 ### Container
 
-- Base image is `ros:humble-ros-base`. The repo is bind-mounted at
+- Base image is `ros:jazzy-ros-base`. The repo is bind-mounted at
   `/workspace`, so host edits appear immediately without a rebuild.
   Rebuild only when `Dockerfile` or `requirements.txt` change.
 - `Dockerfile` also `COPY`s the three Python scripts and
@@ -135,7 +135,7 @@ it was actually run. Say what was and was not exercised.
   `/opt/VimbaX/api/python/` on startup if `vmbpy` is not importable.
 - `docker-compose.yml` uses host networking and host IPC (needed for
   ROS 2 discovery) and forwards `DISPLAY` and `/tmp/.X11-unix` for
-  `--preview` windows. The image is `vimba-apriltag-reader:humble`
+  `--preview` windows. The image is `vimba-apriltag-reader:jazzy`
   and the compose service is `apriltag-reader`.
 - Container configuration is human-authored (see `AI_DISCLOSURE.md`).
   Propose changes to it rather than rewriting it.

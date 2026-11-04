@@ -15,7 +15,7 @@ up and test your changes locally, and what to expect during review.
 | `apriltag_runner.py` | AprilTag detection from images or an AVT camera (Vimba X), with optional pose estimation and ROS 2 publishing |
 | `camera_calibration.py` | Charuco-based camera calibration |
 | `check_container.py` | Sanity check for the container environment |
-| `Dockerfile`, `docker-compose.yml`, `entrypoint.sh` | ROS 2 Humble container setup |
+| `Dockerfile`, `docker-compose.yml`, `entrypoint.sh` | ROS 2 Jazzy container setup |
 | `requirements.txt` | Python dependencies |
 | `calibration_images/` | Input images folder for calibration |
 | `tag_images/` | Sample images for tag detection |
@@ -58,7 +58,7 @@ commands need no extra arguments.
 
 ### Option A: Docker (recommended)
 
-The container provides ROS 2 Humble and the Python dependencies.
+The container provides ROS 2 Jazzy and the Python dependencies.
 
 ```bash
 docker compose build

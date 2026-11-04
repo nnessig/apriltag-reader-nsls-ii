@@ -94,10 +94,10 @@ OpenCV is pinned to 4.9 through 4.13 in `requirements.txt`. See the note under
 provide the `cv2` module and overwrite each other's files.
 
 ROS-provided Python packages (`rclpy`, `tf2_ros`, `std_msgs`, `geometry_msgs`)
-and their dependencies `PyYAML` and `setuptools` come from apt (`ros-humble-*`,
+and their dependencies `PyYAML` and `setuptools` come from apt (`ros-jazzy-*`,
 `python3-yaml`, `python3-setuptools`), not from `requirements.txt`. The Docker
-image installs all of them. Outside Docker, install ROS 2 Humble and source
-`/opt/ros/humble/setup.bash` before running `apriltag_runner.py`.
+image installs all of them. Outside Docker, install ROS 2 Jazzy (Ubuntu 24.04, Python 3.12) and source
+`/opt/ros/jazzy/setup.bash` before running `apriltag_runner.py`.
 `Jinja2` and `typeguard` are not needed by this project. They are only
 requirements of `generate_parameter_library_py`, which is not installed here.
 
@@ -120,7 +120,7 @@ more than one OpenCV pip package is installed. `vmbpy` is reported as optional.
 
 ### Optional (ROS 2 mode)
 
-* ROS 2 (e.g., Humble) with Python bindings:
+* ROS 2 (Jazzy) with Python bindings:
 
   * `rclpy`
   * `geometry_msgs`
