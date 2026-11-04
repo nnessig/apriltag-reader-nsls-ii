@@ -55,7 +55,7 @@ Ask the user before any destructive operation, including:
 | `camera_calibration.py` | Charuco camera calibration; writes intrinsics to YAML |
 | `check_container.py` | Prints which required and optional modules import cleanly |
 | `Dockerfile`, `docker-compose.yml`, `entrypoint.sh` | ROS 2 Humble container |
-| `requirements.txt` | Python deps (`numpy`, `opencv-python`, `opencv-contrib-python`, `pupil-apriltags`) |
+| `requirements.txt` | Python deps (`numpy`, `opencv-contrib-python`, `pupil-apriltags`) |
 | `calibration_images/`, `tag_images/`, `output/` | User data folders. Contents are gitignored; only `.gitkeep` is tracked |
 | `demo_resources/` | Demo images and a README for the demo video walkthrough |
 | `tests/` | pytest suite. `conftest.py` mocks ROS 2 modules when absent |

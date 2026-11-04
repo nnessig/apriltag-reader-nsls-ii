@@ -89,7 +89,29 @@ pip install -r requirements.txt
 ```
 
 OpenCV is pinned to 4.9 through 4.13 in `requirements.txt`. See the note under
-[Camera Calibration](#camera-calibration-charuco) for why.
+[Camera Calibration](#camera-calibration-charuco) for why. Only
+`opencv-contrib-python` is installed. Do not also install `opencv-python`: both
+provide the `cv2` module and overwrite each other's files.
+
+ROS-provided Python packages (`rclpy`, `tf2_ros`, `std_msgs`, `geometry_msgs`)
+and their dependencies `PyYAML` and `setuptools` come from apt (`ros-humble-*`,
+`python3-yaml`, `python3-setuptools`), not from `requirements.txt`. The Docker
+image installs all of them. Outside Docker, install ROS 2 Humble and source
+`/opt/ros/humble/setup.bash` before running `apriltag_runner.py`.
+`Jinja2` and `typeguard` are not needed by this project. They are only
+requirements of `generate_parameter_library_py`, which is not installed here.
+
+### Verify the installation
+
+Inside the container (or any environment with ROS 2 sourced):
+
+```
+python3 check_container.py
+python3 -m pip check
+```
+
+`check_container.py` imports every required module and reports a conflict if
+more than one OpenCV pip package is installed. `vmbpy` is reported as optional.
 
 ### Optional (camera mode)
 

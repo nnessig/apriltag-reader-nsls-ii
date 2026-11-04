@@ -8,7 +8,6 @@ license-files = ["LICENSE", "LICENSE_README"]
 requires-python = ">=3.10"
 dependencies = [
     "numpy",
-    "opencv-python>=4.9,<4.14",
     "opencv-contrib-python>=4.9,<4.14",
     "pupil-apriltags",
 ]

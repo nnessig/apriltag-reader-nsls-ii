@@ -14,6 +14,8 @@ RUN apt-get update && apt-get install -y \
     python3-pip \
     python3-dev \
     python3-venv \
+    python3-setuptools \
+    python3-yaml \
     build-essential \
     git \
     curl \
@@ -33,7 +35,8 @@ RUN apt-get update && apt-get install -y \
 COPY requirements.txt ${WORKSPACE}/requirements.txt
 
 RUN python3 -m pip install --upgrade pip && \
-    python3 -m pip install -r ${WORKSPACE}/requirements.txt
+    python3 -m pip install -r ${WORKSPACE}/requirements.txt && \
+    python3 -m pip check
 
 COPY apriltag_runner.py ${WORKSPACE}/apriltag_runner.py
 COPY camera_calibration.py ${WORKSPACE}/camera_calibration.py
