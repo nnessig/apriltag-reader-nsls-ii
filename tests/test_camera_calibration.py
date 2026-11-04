@@ -272,3 +272,96 @@ def test_not_enough_valid_frames_message(tmp_path):
     assert result.returncode == 2
     assert "Rejected frames: 1" in result.stdout
     assert "Capture more" in result.stderr
+
+
+# A frame with a different resolution is skipped instead of corrupting the dataset
+def test_image_size_mismatch_is_skipped(tmp_path):
+    images = tmp_path / "images"
+    images.mkdir()
+    make_synthetic_calibration_images(images)
+    odd = cv2.imread(str(images / "synthetic_05.png"))
+    cv2.imwrite(str(images / "zz_small.png"), cv2.resize(odd, (640, 480)))
+
+    result = run_calibration(images, tmp_path / "calib.yaml")
+
+    assert result.returncode == 0, result.stderr
+    assert "Skipping zz_small.png: image is 640x480, expected 1280x960" in result.stdout
+    assert "1 x image size mismatch" in result.stdout
+
+
+# Per-frame errors are listed by file name
+def test_per_frame_errors_are_printed(tmp_path):
+    images = tmp_path / "images"
+    images.mkdir()
+    make_synthetic_calibration_images(images)
+
+    result = run_calibration(images, tmp_path / "calib.yaml")
+
+    assert result.returncode == 0, result.stderr
+    assert "Per-frame reprojection error" in result.stdout
+    assert re.search(r"synthetic_00\.png: \d+\.\d+", result.stdout)
+
+
+# --debug-dir writes an overlay for rejected frames only
+def test_debug_dir_saves_rejected_overlays(tmp_path):
+    images = tmp_path / "images"
+    images.mkdir()
+    make_synthetic_calibration_images(images)
+    odd = cv2.imread(str(images / "synthetic_05.png"))
+    cv2.imwrite(str(images / "zz_small.png"), cv2.resize(odd, (640, 480)))
+    debug = tmp_path / "debug"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-I",
+            str(SCRIPT),
+            "--images-dir",
+            str(images),
+            "--out",
+            str(tmp_path / "calib.yaml"),
+            "--debug-dir",
+            str(debug),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=300,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert sorted(p.name for p in debug.iterdir()) == ["zz_small.png.png"]
+
+
+# If OpenCV still fails, the leave-one-out retry names the frame that breaks calibration.
+# Run in-process so calibrateCameraCharucoExtended can be made to fail for one chosen frame.
+def test_calibration_failure_reports_culprit_frame(tmp_path, monkeypatch, capsys):
+    import runpy
+
+    images = tmp_path / "images"
+    images.mkdir()
+    make_synthetic_calibration_images(images)
+    original = cv2.aruco.calibrateCameraCharucoExtended
+    state = {}
+
+    def failing(charucoCorners, **kwargs):
+        state.setdefault("bad", charucoCorners[3])  # 4th accepted frame: synthetic_03.png
+        if any(c is state["bad"] for c in charucoCorners):
+            raise cv2.error("simulated initIntrinsicParams2D failure")
+        return original(charucoCorners=charucoCorners, **kwargs)
+
+    monkeypatch.setattr(cv2.aruco, "calibrateCameraCharucoExtended", failing)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["camera_calibration.py", "--images-dir", str(images), "--out", str(tmp_path / "c.yaml")],
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        runpy.run_path(str(SCRIPT), run_name="__main__")
+
+    err = capsys.readouterr().err
+    assert exc.value.code == 3
+    assert "simulated initIntrinsicParams2D failure" in err
+    assert "Calibration succeeds when any one of these is left out: synthetic_03.png" in err
+    assert not (tmp_path / "c.yaml").exists()

@@ -72,6 +72,13 @@ def main():
         help="Minimum detected ArUco markers to accept a frame",
     )
 
+    # Optionally save overlays of rejected frames (useful without a display, e.g. in a container)
+    ap.add_argument(
+        "--debug-dir",
+        default=None,
+        help="Folder to save detection overlays of rejected frames (created if missing)",
+    )
+
     args = ap.parse_args()
 
     # Board settings (change here if needed for a different setup, original printout generated from calib.io):
@@ -107,6 +114,9 @@ def main():
     all_charuco_corners = []
     all_charuco_ids = []
 
+    # File names of the accepted frames, in the same order as the lists above
+    accepted_names = []
+
     # Will store image size once we read the first valid image
     image_size = None
 
@@ -120,6 +130,22 @@ def main():
         name = os.path.basename(path)
         print(f"[WARN] Skipping {name}: {detail}")
         rejected_frames.append((name, category))
+
+    # Save an overlay of a rejected frame to --debug-dir (red = Charuco corners that were found)
+    def save_debug(path, img, corners, ids, charuco_corners=None, charuco_ids=None):
+        if args.debug_dir is None:
+            return
+        os.makedirs(args.debug_dir, exist_ok=True)
+        vis = img.copy()
+        if ids is not None and len(ids) > 0:
+            cv2.aruco.drawDetectedMarkers(vis, corners, ids)
+        if charuco_ids is not None and charuco_corners is not None and len(charuco_ids) > 0:
+            cv2.aruco.drawDetectedCornersCharuco(vis, charuco_corners, charuco_ids, (0, 0, 255))
+        out_path = os.path.join(args.debug_dir, os.path.basename(path) + ".png")
+        if cv2.imwrite(out_path, vis):
+            print(f"       Debug overlay saved: {out_path}")
+        else:
+            print(f"[WARN] Could not write debug overlay: {out_path}")
 
     # Check whether this OpenCV build uses the newer ArucoDetector API
     use_new_api = hasattr(cv2.aruco, "ArucoDetector")
@@ -166,6 +192,18 @@ def main():
         if image_size is None:
             image_size = (gray.shape[1], gray.shape[0])  # (w, h)
 
+        # Every frame must match that size, otherwise the intrinsics would be inconsistent
+        this_size = (gray.shape[1], gray.shape[0])
+        if this_size != image_size:
+            reject(
+                p,
+                "image size mismatch",
+                f"image is {this_size[0]}x{this_size[1]}, expected {image_size[0]}x{image_size[1]} "
+                "(size of the first readable image)",
+            )
+            save_debug(p, img, None, None)
+            continue
+
         # Detect ArUco markers in the image
         if use_new_api:
             corners, ids, rejected = detector.detectMarkers(gray)
@@ -182,6 +220,7 @@ def main():
                 "too few ArUco markers",
                 f"{n_markers} ArUco markers detected, need at least {args.min_markers}",
             )
+            save_debug(p, img, corners, ids)
             if args.show:
                 cv2.imshow("charuco", img)
                 cv2.waitKey(30)
@@ -214,6 +253,7 @@ def main():
                 "too few Charuco corners",
                 f"{n_corners} Charuco corners detected, need at least 4",
             )
+            save_debug(p, img, corners, ids, charuco_corners, charuco_ids)
             if args.show:
                 # show detected markers even if the frame was rejected
                 vis = img.copy()
@@ -231,6 +271,7 @@ def main():
                 "collinear Charuco corners",
                 f"{len(charuco_ids)} Charuco corners detected, {problem}",
             )
+            save_debug(p, img, corners, ids, charuco_corners, charuco_ids)
             if args.show:
                 vis = img.copy()
                 cv2.aruco.drawDetectedMarkers(vis, corners, ids)
@@ -242,6 +283,7 @@ def main():
         # Keep this frame's Charuco detections for calibration later
         all_charuco_corners.append(charuco_corners)
         all_charuco_ids.append(charuco_ids)
+        accepted_names.append(os.path.basename(p))
         kept += 1
 
         # Optionally show the accepted detections
@@ -286,12 +328,12 @@ def main():
 
     # Run Charuco calibration
     # Newer OpenCV has an extended version that also returns extra stats
-    try:
+    def calibrate(charuco_corners_list, charuco_ids_list):
         if hasattr(cv2.aruco, "calibrateCameraCharucoExtended"):
             rms, K, D, rvecs, tvecs, stdI, stdE, perViewErrors = (
                 cv2.aruco.calibrateCameraCharucoExtended(
-                    charucoCorners=all_charuco_corners,
-                    charucoIds=all_charuco_ids,
+                    charucoCorners=charuco_corners_list,
+                    charucoIds=charuco_ids_list,
                     board=board,
                     imageSize=image_size,
                     cameraMatrix=K_init,
@@ -299,17 +341,21 @@ def main():
                     flags=flags,
                 )
             )
-        else:
-            # Older version returns only the main calibration outputs
-            rms, K, D, rvecs, tvecs = cv2.aruco.calibrateCameraCharuco(
-                charucoCorners=all_charuco_corners,
-                charucoIds=all_charuco_ids,
-                board=board,
-                imageSize=image_size,
-                cameraMatrix=K_init,
-                distCoeffs=D_init,
-                flags=flags,
-            )
+            return rms, K, D, perViewErrors
+        # Older version returns only the main calibration outputs
+        rms, K, D, rvecs, tvecs = cv2.aruco.calibrateCameraCharuco(
+            charucoCorners=charuco_corners_list,
+            charucoIds=charuco_ids_list,
+            board=board,
+            imageSize=image_size,
+            cameraMatrix=K_init,
+            distCoeffs=D_init,
+            flags=flags,
+        )
+        return rms, K, D, None
+
+    try:
+        rms, K, D, per_view_errors = calibrate(all_charuco_corners, all_charuco_ids)
     except cv2.error as e:
         # Only OpenCV calibration failures are handled here; anything else propagates
         counts = [len(c) for c in all_charuco_corners]
@@ -320,10 +366,29 @@ def main():
             f"mean {sum(counts) / len(counts):.1f}",
             file=sys.stderr,
         )
+
+        # Diagnostic only: retry with each frame left out to point at a likely culprit
+        print("  Retrying with each frame left out (nothing is deleted):", file=sys.stderr)
+        fixes = []
+        for i, name in enumerate(accepted_names):
+            try:
+                calibrate(
+                    all_charuco_corners[:i] + all_charuco_corners[i + 1 :],
+                    all_charuco_ids[:i] + all_charuco_ids[i + 1 :],
+                )
+            except cv2.error:
+                continue
+            fixes.append(name)
+        if fixes:
+            print(
+                "  Calibration succeeds when any one of these is left out: " + ", ".join(fixes),
+                file=sys.stderr,
+            )
+        else:
+            print("  No single frame removal fixes it; several frames may be bad.", file=sys.stderr)
         print(
-            "  Likely cause: a frame with poor detections (few corners, or corners on one "
-            "line). Re-run with --show to inspect detections, then remove or retake the "
-            "offending images. No files were deleted.",
+            "  Re-run with --show or --debug-dir to inspect detections, then remove or retake "
+            "the offending images.",
             file=sys.stderr,
         )
         sys.exit(3)
@@ -342,6 +407,15 @@ def main():
     print("\nUse these in AprilTag runner:")
     print(f"  --fx {fx:.6f} --fy {fy:.6f} --cx {cx:.6f} --cy {cy:.6f}")
     print(f"Image size used: {image_size[0]}x{image_size[1]} (WxH)")
+
+    # Per-frame reprojection error, so frames that fit badly stand out (marked with <--)
+    if per_view_errors is not None:
+        errs = np.asarray(per_view_errors, dtype=np.float64).reshape(-1)
+        median_err = float(np.median(errs))
+        print("\n=== Per-frame reprojection error (pixels) ===")
+        for name, err in zip(accepted_names, errs, strict=True):
+            flag = "  <-- high" if err > 2 * median_err and err > 1.0 else ""
+            print(f"  {name}: {err:.4f}{flag}")
 
     # Save calibration result to yaml file
     out_dir = os.path.dirname(os.path.abspath(args.out))
