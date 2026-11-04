@@ -182,3 +182,93 @@ def test_calibration_recovers_known_intrinsics(tmp_path):
     assert K[0, 2] == pytest.approx(cx, abs=60)
     assert K[1, 2] == pytest.approx(cy, abs=60)
     assert rms < 1.0
+
+
+# The 4x2 interior Charuco corners of the 5x3 board, as a flat (undistorted) pixel grid
+def grid_corners(step=80.0, origin=(400.0, 400.0)):
+    return np.array(
+        [[origin[0] + i * step, origin[1] + j * step] for j in range(2) for i in range(4)],
+        dtype=np.float32,
+    ).reshape(-1, 1, 2)
+
+
+# Imported lazily so the module's cv2 import stays out of collection errors
+def geometry_problem(corners):
+    sys.path.insert(0, str(ROOT))
+    try:
+        from camera_calibration import charuco_geometry_problem
+    finally:
+        sys.path.remove(str(ROOT))
+    return charuco_geometry_problem(corners)
+
+
+# A well-distributed frame must pass
+def test_geometry_accepts_well_distributed_corners():
+    assert geometry_problem(grid_corners()) is None
+
+
+# Valid tilted/perspective views (strong foreshortening) must not be rejected
+def test_geometry_accepts_strongly_tilted_board():
+    pts = grid_corners().reshape(-1, 2)
+    # Squash one axis to 30% (roughly a 72 degree tilt) and add a shear
+    pts = (pts - pts.mean(axis=0)) * np.array([1.0, 0.3]) + pts.mean(axis=0)
+    pts[:, 0] += 0.3 * (pts[:, 1] - pts[:, 1].mean())
+    assert geometry_problem(pts.astype(np.float32)) is None
+
+
+# Four corners on one row, as in the failing frame
+def test_geometry_rejects_four_collinear_corners():
+    pts = grid_corners()[:4]
+    assert "collinear" in geometry_problem(pts)
+
+
+# Sub-pixel jitter around a line is still degenerate
+def test_geometry_rejects_nearly_collinear_corners():
+    rng = np.random.default_rng(1)
+    pts = grid_corners()[:4].reshape(-1, 2)
+    pts[:, 1] += rng.normal(0, 0.2, size=4)
+    assert "collinear" in geometry_problem(pts.astype(np.float32))
+
+
+# Too few corners are rejected, whether by count or by geometry
+def test_geometry_rejects_too_few_corners():
+    assert geometry_problem(grid_corners()[:2]) is not None
+
+
+# Dataset with good frames plus a frame showing only a single row of the board:
+# the bad frame is skipped and calibration still produces the YAML
+def test_dataset_with_invalid_frame_is_skipped(tmp_path):
+    images = tmp_path / "images"
+    images.mkdir()
+    make_synthetic_calibration_images(images)
+
+    # Frame-on-a-line: board partially covered so only one row of corners remains
+    good = cv2.imread(str(images / "synthetic_00.png"), cv2.IMREAD_GRAYSCALE)
+    bad = good.copy()
+    ys, xs = np.nonzero(good < 100)
+    bad[int(np.median(ys)) + 3 :, :] = 200
+    cv2.imwrite(str(images / "bad_partial.png"), bad)
+
+    out = tmp_path / "calib.yaml"
+    result = run_calibration(images, out)
+
+    assert result.returncode == 0, result.stderr
+    assert "Skipping bad_partial.png" in result.stdout
+    assert "Rejected frames: 1" in result.stdout
+    assert "Accepted frames: 16" in result.stdout
+    assert "Images processed: 17" in result.stdout
+
+    fs = cv2.FileStorage(str(out), cv2.FILE_STORAGE_READ)
+    assert fs.getNode("camera_matrix").mat().shape == (3, 3)
+    fs.release()
+    assert (images / "bad_partial.png").exists()  # never deleted
+
+
+# Too few valid frames after rejection gives an actionable error, not an OpenCV crash
+def test_not_enough_valid_frames_message(tmp_path):
+    blank = np.full((200, 200, 3), 255, dtype=np.uint8)
+    cv2.imwrite(str(tmp_path / "blank.png"), blank)
+    result = run_calibration(tmp_path, tmp_path / "calib.yaml")
+    assert result.returncode == 2
+    assert "Rejected frames: 1" in result.stdout
+    assert "Capture more" in result.stderr

@@ -18,6 +18,35 @@ import os
 import sys
 
 import cv2
+import numpy as np
+
+# A frame is rejected as degenerate when its detected Charuco corners are (nearly) on one line.
+# The ratio of the smaller to the larger singular value of the centered corner coordinates is
+# scale-free: a fronto-parallel 4x2 corner grid is ~0.45, one tilted ~72 degrees is ~0.13, a line is ~0.
+MIN_SV_RATIO = 0.05
+# Also require the corners to spread at least this many pixels (RMS) perpendicular to the main
+# direction, so a tiny cluster of noisy points is not mistaken for 2D coverage
+MIN_PERP_SPREAD_PX = 1.0
+
+
+def charuco_geometry_problem(charuco_corners):
+    """Return a reason string if the corners cannot constrain a calibration, otherwise None."""
+    pts = np.asarray(charuco_corners, dtype=np.float64).reshape(-1, 2)
+    if len(pts) < 3:
+        return "fewer than 3 corners"
+    # Singular values of the centered points; rank < 2 means collinear
+    sv = np.linalg.svd(pts - pts.mean(axis=0), compute_uv=False)
+    if sv[0] <= 0:
+        return "all corners at the same position"
+    ratio = sv[1] / sv[0]
+    perp_rms = sv[1] / np.sqrt(len(pts))
+    if ratio < MIN_SV_RATIO or perp_rms < MIN_PERP_SPREAD_PX:
+        return (
+            f"corners are collinear or nearly collinear "
+            f"(singular value ratio {ratio:.4f} < {MIN_SV_RATIO}, "
+            f"perpendicular spread {perp_rms:.2f} px)"
+        )
+    return None
 
 
 def main():
@@ -84,6 +113,14 @@ def main():
     # Number of frames that were good enough to keep
     kept = 0
 
+    # Frames that were skipped: (file name, reason category)
+    rejected_frames = []
+
+    def reject(path, category, detail):
+        name = os.path.basename(path)
+        print(f"[WARN] Skipping {name}: {detail}")
+        rejected_frames.append((name, category))
+
     # Check whether this OpenCV build uses the newer ArucoDetector API
     use_new_api = hasattr(cv2.aruco, "ArucoDetector")
     if use_new_api:
@@ -119,7 +156,7 @@ def main():
         # Load image in color
         img = cv2.imread(p, cv2.IMREAD_COLOR)
         if img is None:
-            print(f"[WARN] Could not read: {p}")
+            reject(p, "could not read image", "could not read image file")
             continue
 
         # Convert to grayscale for marker detection
@@ -139,6 +176,12 @@ def main():
 
         # Skip frame if not enough markers were found
         if ids is None or len(ids) < args.min_markers:
+            n_markers = 0 if ids is None else len(ids)
+            reject(
+                p,
+                "too few ArUco markers",
+                f"{n_markers} ArUco markers detected, need at least {args.min_markers}",
+            )
             if args.show:
                 cv2.imshow("charuco", img)
                 cv2.waitKey(30)
@@ -165,10 +208,33 @@ def main():
 
         # Need at least 4 Charuco corners for a frame to be useful
         if charuco_ids is None or charuco_corners is None or len(charuco_ids) < 4:
+            n_corners = 0 if charuco_ids is None else len(charuco_ids)
+            reject(
+                p,
+                "too few Charuco corners",
+                f"{n_corners} Charuco corners detected, need at least 4",
+            )
             if args.show:
                 # show detected markers even if the frame was rejected
                 vis = img.copy()
                 cv2.aruco.drawDetectedMarkers(vis, corners, ids)
+                cv2.imshow("charuco", vis)
+                cv2.waitKey(30)
+            continue
+
+        # Reject frames whose corners do not span two dimensions (e.g. all on one row), since
+        # they make OpenCV's initial intrinsics estimate fail
+        problem = charuco_geometry_problem(charuco_corners)
+        if problem is not None:
+            reject(
+                p,
+                "collinear Charuco corners",
+                f"{len(charuco_ids)} Charuco corners detected, {problem}",
+            )
+            if args.show:
+                vis = img.copy()
+                cv2.aruco.drawDetectedMarkers(vis, corners, ids)
+                cv2.aruco.drawDetectedCornersCharuco(vis, charuco_corners, charuco_ids, (0, 0, 255))
                 cv2.imshow("charuco", vis)
                 cv2.waitKey(30)
             continue
@@ -190,10 +256,27 @@ def main():
     if args.show:
         cv2.destroyAllWindows()
 
+    # Summary of what happened to every image
+    print("\n=== Frame Validation Summary ===")
+    print(f"Images processed: {len(img_paths)}")
+    print(f"Accepted frames: {kept}")
+    print(f"Rejected frames: {len(rejected_frames)}")
+    reasons = {}
+    for _, category in rejected_frames:
+        reasons[category] = reasons.get(category, 0) + 1
+    for category, count in sorted(reasons.items()):
+        print(f"  {count} x {category}")
+
     # Require at least some reasonable number of good frames
     # 10 is bare minimum here, but 25-40 is preferred
     if kept < 10:
         print(f"ERROR: Only kept {kept} good frames. Need ~10+ (prefer 25-40).", file=sys.stderr)
+        print(
+            f"  {len(rejected_frames)} of {len(img_paths)} images were rejected (see [WARN] lines "
+            "above). Capture more sharp, well-lit views of the full board at varied tilts and "
+            "positions.",
+            file=sys.stderr,
+        )
         sys.exit(2)
 
     # Calibration settings
@@ -203,9 +286,22 @@ def main():
 
     # Run Charuco calibration
     # Newer OpenCV has an extended version that also returns extra stats
-    if hasattr(cv2.aruco, "calibrateCameraCharucoExtended"):
-        rms, K, D, rvecs, tvecs, stdI, stdE, perViewErrors = (
-            cv2.aruco.calibrateCameraCharucoExtended(
+    try:
+        if hasattr(cv2.aruco, "calibrateCameraCharucoExtended"):
+            rms, K, D, rvecs, tvecs, stdI, stdE, perViewErrors = (
+                cv2.aruco.calibrateCameraCharucoExtended(
+                    charucoCorners=all_charuco_corners,
+                    charucoIds=all_charuco_ids,
+                    board=board,
+                    imageSize=image_size,
+                    cameraMatrix=K_init,
+                    distCoeffs=D_init,
+                    flags=flags,
+                )
+            )
+        else:
+            # Older version returns only the main calibration outputs
+            rms, K, D, rvecs, tvecs = cv2.aruco.calibrateCameraCharuco(
                 charucoCorners=all_charuco_corners,
                 charucoIds=all_charuco_ids,
                 board=board,
@@ -214,18 +310,23 @@ def main():
                 distCoeffs=D_init,
                 flags=flags,
             )
+    except cv2.error as e:
+        # Only OpenCV calibration failures are handled here; anything else propagates
+        counts = [len(c) for c in all_charuco_corners]
+        print(f"ERROR: OpenCV calibration failed: {e}", file=sys.stderr)
+        print(
+            f"  Frames used: {kept}, image size: {image_size[0]}x{image_size[1]}, "
+            f"Charuco corners per frame: min {min(counts)}, max {max(counts)}, "
+            f"mean {sum(counts) / len(counts):.1f}",
+            file=sys.stderr,
         )
-    else:
-        # Older version returns only the main calibration outputs
-        rms, K, D, rvecs, tvecs = cv2.aruco.calibrateCameraCharuco(
-            charucoCorners=all_charuco_corners,
-            charucoIds=all_charuco_ids,
-            board=board,
-            imageSize=image_size,
-            cameraMatrix=K_init,
-            distCoeffs=D_init,
-            flags=flags,
+        print(
+            "  Likely cause: a frame with poor detections (few corners, or corners on one "
+            "line). Re-run with --show to inspect detections, then remove or retake the "
+            "offending images. No files were deleted.",
+            file=sys.stderr,
         )
+        sys.exit(3)
 
     # Extract intrinsic parameters from camera matrix
     fx, fy, cx, cy = K[0, 0], K[1, 1], K[0, 2], K[1, 2]
