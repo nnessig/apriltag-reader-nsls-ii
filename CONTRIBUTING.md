@@ -12,7 +12,8 @@ up and test your changes locally, and what to expect during review.
 
 | Path | Purpose |
 | --- | --- |
-| `apriltag_runner.py` | AprilTag detection from images or an AVT camera (Vimba X), with optional pose estimation and ROS 2 publishing |
+| `src/apriltag_reader/` | AprilTag detection package: shared modules plus optional Vimba X (`cameras/`) and ROS 2 (`ros/`) support |
+| `apriltag_runner.py` | Wrapper that runs `apriltag_reader.cli.main()` (also installed as `apriltag-runner`) |
 | `camera_calibration.py` | Charuco-based camera calibration |
 | `check_container.py` | Sanity check for the container environment |
 | `Dockerfile`, `docker-compose.yml`, `entrypoint.sh` | ROS 2 Jazzy container setup |
@@ -84,11 +85,11 @@ source .venv/bin/activate       # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-`apriltag_runner.py` currently imports the ROS 2 packages (`rclpy`,
-`std_msgs`, `geometry_msgs`, `tf2_ros`) at startup, so it needs a ROS 2
-installation even for still images. Use Docker unless you have ROS 2
-set up locally. `camera_calibration.py` only needs
-`requirements.txt`. Camera mode also needs `vmbpy` from Vimba X.
+Image mode and the shared modules need only `requirements.txt`. ROS 2
+packages (`rclpy`, `std_msgs`, `geometry_msgs`, `tf2_ros`) are imported
+only with `--ros`, so use Docker unless you have ROS 2 set up locally.
+`camera_calibration.py` only needs `requirements.txt`. Camera mode also
+needs `vmbpy` from Vimba X.
 
 ## 5. Make and test your changes
 
@@ -104,10 +105,10 @@ pip install -r requirements.txt pytest
 pytest
 ```
 
-The tests cover the helper functions in `apriltag_runner.py`, tag
+The tests cover the helper functions in `src/apriltag_reader/`, tag
 detection and pose on a synthetic tag, and `camera_calibration.py` on the
-demo images. If ROS 2 is not installed, `tests/conftest.py` substitutes
-mock ROS modules so the tests still run. Camera mode and ROS 2
+demo images. The tests do not need ROS 2; `tests/conftest.py` still
+substitutes mock ROS modules when it is absent. Camera mode and ROS 2
 publishing are not covered. If you have `nox` or `uv`, `nox -s tests`
 and `nox -s lint` run the tests and lint checks in their own
 environments.

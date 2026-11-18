@@ -51,20 +51,21 @@ Ask the user before any destructive operation, including:
 
 | Path | Purpose |
 | --- | --- |
-| `apriltag_runner.py` | Main tool: tag detection, pose estimation, Vimba X camera capture, ROS 2 publishing |
+| `src/apriltag_reader/` | Main package: `preprocessing`, `detector`, `pose`, `rendering` (shared, no ROS/Vimba imports), `cameras/vimba.py` (Vimba X), `ros/publisher.py` (ROS 2), `cli.py` (args, `main()`, image and camera modes) |
+| `apriltag_runner.py` | Thin wrapper that runs `apriltag_reader.cli.main()`; keeps `python3 apriltag_runner.py ...` working. Also installed as the `apriltag-runner` command |
 | `camera_calibration.py` | Charuco camera calibration; writes intrinsics to YAML |
 | `check_container.py` | Prints which required and optional modules import cleanly |
 | `Dockerfile`, `docker-compose.yml`, `entrypoint.sh` | ROS 2 Jazzy container |
 | `requirements.txt` | Python deps (`numpy`, `opencv-contrib-python`, `pupil-apriltags`) |
 | `calibration_images/`, `tag_images/`, `output/` | User data folders. Contents are gitignored; only `.gitkeep` is tracked |
 | `demo_resources/` | Demo images and a README for the demo video walkthrough |
-| `tests/` | pytest suite. `conftest.py` mocks ROS 2 modules when absent |
+| `tests/` | pytest suite. `conftest.py` mocks ROS 2 modules when absent (the shared modules no longer need them) |
 | `pyproject.toml`, `.pre-commit-config.yaml`, `noxfile.py` | Project metadata, ruff and pytest settings, lint hooks, task runner |
 | `.github/` | CI workflow and Dependabot config |
 | `README.md`, `CONTRIBUTING.md`, `AI_DISCLOSURE.md` | Docs |
 
 The README documents the CLI flags. Keep it in sync with
-`parse_args()` in `apriltag_runner.py` and the arguments in
+`parse_args()` in `src/apriltag_reader/cli.py` and the arguments in
 `camera_calibration.py`.
 
 ## Running and verifying
@@ -93,14 +94,15 @@ their `!` exceptions in `.gitignore` because `*.yaml` and `*.yml` are
 ignored.
 
 - The ROS 2 Python packages (`rclpy`, `std_msgs`, `geometry_msgs`,
-  `tf2_ros`) are imported unconditionally at the top of
-  `apriltag_runner.py`. The script will not even import without ROS 2
-  sourced. Run it in the container, where `entrypoint.sh` sources
-  `/opt/ros/${ROS_DISTRO}/setup.bash`.
+  `tf2_ros`) are imported only in `src/apriltag_reader/ros/publisher.py`,
+  which `cli.main()` loads when `--ros` is set. Image mode and the shared
+  modules (`preprocessing`, `detector`, `pose`, `rendering`) must not import
+  ROS 2 or `vmbpy`. Run `--ros` in the container, where `entrypoint.sh`
+  sources `/opt/ros/${ROS_DISTRO}/setup.bash`.
 - `camera_calibration.py` needs only `numpy` and
   `opencv-contrib-python`, and can run outside the container.
 - `pupil_apriltags` is required. `vmbpy` is optional and is detected at
-  import time (`_vimba_available`). Camera mode exits with an error if
+  import time in `src/apriltag_reader/cameras/vimba.py` (`_vimba_available`). Camera mode exits with an error if
   it is missing.
 
 ```bash
@@ -127,9 +129,11 @@ it was actually run. Say what was and was not exercised.
 - Base image is `ros:jazzy-ros-base`. The repo is bind-mounted at
   `/workspace`, so host edits appear immediately without a rebuild.
   Rebuild only when `Dockerfile` or `requirements.txt` change.
-- `Dockerfile` also `COPY`s the three Python scripts and
-  `entrypoint.sh` into the image. A new top-level script must be added
-  there for the image to contain it.
+- `Dockerfile` also `COPY`s `src/`, the packaging files, the top-level
+  scripts, and `entrypoint.sh` into the image, and installs the package
+  with `pip install --no-deps -e` so the bind-mounted `src/` is what
+  runs. A new top-level script must be added there for the image to
+  contain it.
 - The Vimba X SDK is installed on the host and mounted read-only at
   `/opt/VimbaX`. `entrypoint.sh` installs the `vmbpy` wheel from
   `/opt/VimbaX/api/python/` on startup if `vmbpy` is not importable.
@@ -169,7 +173,7 @@ troubleshooting section.
 - `--tag-size` is in **meters**. `--fx/--fy/--cx/--cy` are in
   **pixels**. Pose is only computed when all of them are given.
 - `camera_calibration.py` prints the `--fx/--fy/--cx/--cy` values to
-  paste into `apriltag_runner.py`. Keep that output format stable, as
+  paste into `apriltag_runner.py` (or `apriltag-runner`). Keep that output format stable, as
   the README shows it.
 - The calibration YAML includes the distortion coefficients, but
   `apriltag_runner.py` does not read the YAML. Intrinsics are passed
@@ -187,7 +191,7 @@ consumers depend on them:
 ### Detector settings
 
 `detect_tags` caches `pupil_apriltags.Detector` instances in
-`_DETECTOR_CACHE` keyed by settings. Do not construct a new detector
+`_DETECTOR_CACHE` (in `src/apriltag_reader/detector.py`) keyed by settings. Do not construct a new detector
 per frame, as this is a performance optimization for the camera loop.
 
 ### Debug output names

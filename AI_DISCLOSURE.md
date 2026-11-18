@@ -17,11 +17,11 @@ scope:
     container configuration (Dockerfile, docker-compose.yml,
     entrypoint.sh), and final review of all merged changes.
   ai-assisted: >
-    Source code (apriltag_runner.py, camera_calibration.py,
+    Source code (src/apriltag_reader/, apriltag_runner.py, camera_calibration.py,
     check_container.py) and documentation (README.md,
     CONTRIBUTING.md, this file) — all with human review and
     validation.
-last-updated: 2026-10-16
+last-updated: 2026-11-18
 ---
 
 # AI Disclosure
@@ -56,7 +56,7 @@ about what the tool should do, how it is used with the camera and
 calibration board, and whether a change is correct are made by the
 maintainers. Results are checked against real images and hardware.
 
-**Source code** (`apriltag_runner.py`, `camera_calibration.py`,
+**Source code** (`src/apriltag_reader/`, `apriltag_runner.py`, `camera_calibration.py`,
 `check_container.py`) is ai-assisted: initial drafts, refactors, and
 debugging suggestions may originate from an AI tool and are then
 reviewed, run, and validated by a human contributor before merging.
