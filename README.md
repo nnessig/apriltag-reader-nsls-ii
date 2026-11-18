@@ -1,11 +1,11 @@
 # Vimba AprilTag Reader
 
-`apriltag_runner.py` is a flexible AprilTag detection tool that works with either:
+The `apriltag_reader` package (`src/apriltag_reader/`) is a flexible AprilTag detection tool that works with either:
 
 * **Still images**, or
 * **An Allied Vision (AVT) camera** using the **Vimba X** SDK.
 
-It supports optional preprocessing, pose estimation, debug image saving, and ROS 2 publishing (including TF frames). The script was built for real experimental use, so most features are designed to make the workflow easy, repeatable, and debuggable.
+It supports optional preprocessing, pose estimation, debug image saving, and ROS 2 publishing (including TF frames). Run it with `python3 apriltag_runner.py ...` (a thin wrapper) or, after `pip install -e .`, with the `apriltag-runner` command; both accept the same flags. ROS 2 and Vimba X are imported only when `--ros` or `--cam-id` is used. The tool was built for real experimental use, so most features are designed to make the workflow easy, repeatable, and debuggable.
 
 ---
 
@@ -97,7 +97,7 @@ ROS-provided Python packages (`rclpy`, `tf2_ros`, `std_msgs`, `geometry_msgs`)
 and their dependencies `PyYAML` and `setuptools` come from apt (`ros-jazzy-*`,
 `python3-yaml`, `python3-setuptools`), not from `requirements.txt`. The Docker
 image installs all of them. Outside Docker, install ROS 2 Jazzy (Ubuntu 24.04, Python 3.12) and source
-`/opt/ros/jazzy/setup.bash` before running `apriltag_runner.py`.
+`/opt/ros/jazzy/setup.bash` before running `apriltag_runner.py` with `--ros`. Image mode does not need ROS 2.
 `Jinja2` and `typeguard` are not needed by this project. They are only
 requirements of `generate_parameter_library_py`, which is not installed here.
 

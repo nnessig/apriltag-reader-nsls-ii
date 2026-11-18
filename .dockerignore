@@ -8,5 +8,4 @@ __pycache__/
 output/
 calibration_images/
 tag_images/
-README.md
 docker-compose.yml

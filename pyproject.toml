@@ -1,3 +1,7 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "vimba-apriltag-reader"
 version = "0.1.0"
@@ -12,9 +16,15 @@ dependencies = [
     "pupil-apriltags",
 ]
 
-# This repository is a set of scripts run in the ROS 2 container, not an
-# installable package, so there is no [build-system] table. Runtime
-# dependencies are mirrored in requirements.txt for the Dockerfile.
+[project.scripts]
+apriltag-runner = "apriltag_reader.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+# ROS 2 (rclpy etc.) and vmbpy are not pip dependencies: ROS 2 comes from the
+# container and vmbpy from the Vimba X SDK wheel. Both are optional at import
+# time. Runtime dependencies are mirrored in requirements.txt for the Dockerfile.
 
 [dependency-groups]
 test = [
@@ -42,10 +52,4 @@ xfail_strict = true
 filterwarnings = ["error"]
 log_level = "INFO"
 testpaths = ["tests"]
-pythonpath = ["."]
-
-[tool.repo-review]
-ignore = [
-    "PP002", # Not an installable package, so there is no [build-system] table
-    "PP003", # Same reason: no build requirements to check
-]
+pythonpath = ["src"]

@@ -41,6 +41,11 @@ COPY requirements.txt ${WORKSPACE}/requirements.txt
 RUN python3 -m pip install --ignore-installed -r ${WORKSPACE}/requirements.txt && \
     python3 -m pip check
 
+COPY pyproject.toml README.md LICENSE LICENSE_README ${WORKSPACE}/
+COPY src ${WORKSPACE}/src
+# Editable install so the bind-mounted /workspace/src is what runs
+RUN python3 -m pip install --no-deps -e ${WORKSPACE}
+
 COPY apriltag_runner.py ${WORKSPACE}/apriltag_runner.py
 COPY camera_calibration.py ${WORKSPACE}/camera_calibration.py
 COPY check_container.py ${WORKSPACE}/check_container.py

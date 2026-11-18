@@ -1,11 +1,14 @@
+import os
+import subprocess
 import sys
+from pathlib import Path
 from types import SimpleNamespace
 
 import cv2
 import numpy as np
 import pytest
 
-import apriltag_runner as ar
+from apriltag_reader import cli, detector, pose, preprocessing, rendering
 
 TAG_ID = 7
 TAG_PIXELS = 200
@@ -30,15 +33,15 @@ def tag_image():
 
 @pytest.fixture(autouse=True)
 def reset_pose_history():
-    ar._POSE_HISTORY.clear()
-    ar._POSE_REJECTS.clear()
+    pose._POSE_HISTORY.clear()
+    pose._POSE_REJECTS.clear()
     yield
-    ar._POSE_HISTORY.clear()
-    ar._POSE_REJECTS.clear()
+    pose._POSE_HISTORY.clear()
+    pose._POSE_REJECTS.clear()
 
 
 def detect(gray, do_pose=False, tag_size=None, fx=None, fy=None, cx=None, cy=None, **kwargs):
-    return ar.detect_tags(
+    return detector.detect_tags(
         gray,
         families="tag36h11",
         nthreads=1,
@@ -62,21 +65,21 @@ def detect(gray, do_pose=False, tag_size=None, fx=None, fy=None, cx=None, cy=Non
 
 # Sends the identity rotation matrix (no rotation) and expects back the identity quaternion
 def test_quaternion_identity():
-    assert ar.rotation_matrix_to_quaternion(np.eye(3)) == pytest.approx((0, 0, 0, 1))
+    assert pose.rotation_matrix_to_quaternion(np.eye(3)) == pytest.approx((0, 0, 0, 1))
 
 
 # Checks that the function handles single-axis rotations about z
 def test_quaternion_90_degrees_about_z():
     R = np.array([[0, -1, 0], [1, 0, 0], [0, 0, 1]], dtype=float)
     s = np.sqrt(0.5)
-    assert ar.rotation_matrix_to_quaternion(R) == pytest.approx((0, 0, s, s))
+    assert pose.rotation_matrix_to_quaternion(R) == pytest.approx((0, 0, s, s))
 
 
 # Checks that the function handles single-axis rotations about x
 def test_quaternion_90_degrees_about_x():
     R = np.array([[1, 0, 0], [0, 0, -1], [0, 1, 0]], dtype=float)
     s = np.sqrt(0.5)
-    assert ar.rotation_matrix_to_quaternion(R) == pytest.approx((s, 0, 0, s))
+    assert pose.rotation_matrix_to_quaternion(R) == pytest.approx((s, 0, 0, s))
 
 
 # Checks that quaternions are normalized
@@ -84,7 +87,7 @@ def test_quaternion_is_unit_length():
     angle = np.radians(37.0)
     c, s = np.cos(angle), np.sin(angle)
     R = np.array([[c, -s, 0], [s, c, 0], [0, 0, 1]])
-    assert np.linalg.norm(ar.rotation_matrix_to_quaternion(R)) == pytest.approx(1.0)
+    assert np.linalg.norm(pose.rotation_matrix_to_quaternion(R)) == pytest.approx(1.0)
 
 
 # ----------------------------
@@ -95,14 +98,14 @@ def test_quaternion_is_unit_length():
 # Ensures the image is correctly converted to grayscale and retains the same dimensions
 def test_preprocess_converts_color_to_gray():
     bgr = np.zeros((20, 30, 3), dtype=np.uint8)
-    gray = ar.preprocess(bgr, use_clahe=False, use_sharpen=False)
+    gray = preprocessing.preprocess(bgr, use_clahe=False, use_sharpen=False)
     assert gray.shape == (20, 30)
 
 
 # Checks that while the object is changed, the image itself remains the same
 def test_preprocess_keeps_gray_input_unchanged():
     gray = np.full((20, 30), 100, dtype=np.uint8)
-    out = ar.preprocess(gray, use_clahe=False, use_sharpen=False)
+    out = preprocessing.preprocess(gray, use_clahe=False, use_sharpen=False)
     assert np.array_equal(out, gray)
     assert out is not gray
 
@@ -110,21 +113,21 @@ def test_preprocess_keeps_gray_input_unchanged():
 # Tests that upscale produces the expected output
 def test_preprocess_upscale():
     gray = np.zeros((20, 30), dtype=np.uint8)
-    out = ar.preprocess(gray, use_clahe=False, use_sharpen=False, upscale=2.0)
+    out = preprocessing.preprocess(gray, use_clahe=False, use_sharpen=False, upscale=2.0)
     assert out.shape == (40, 60)
 
 
 # Tests that downscale produces the expected output
 def test_preprocess_downscale():
     img = np.zeros((40, 60), dtype=np.uint8)
-    out = ar.preprocess(img, use_clahe=False, use_sharpen=False, upscale=0.5)
+    out = preprocessing.preprocess(img, use_clahe=False, use_sharpen=False, upscale=0.5)
     assert out.shape == (20, 30)
 
 
 # Ensures that CLAHE and sharpening does not change dimensions or dtype
 def test_preprocess_clahe_and_sharpen_keep_shape_and_dtype():
     gray = np.random.default_rng(0).integers(0, 255, (64, 64), dtype=np.uint8)
-    out = ar.preprocess(gray, use_clahe=True, use_sharpen=True)
+    out = preprocessing.preprocess(gray, use_clahe=True, use_sharpen=True)
     assert out.shape == gray.shape
     assert out.dtype == np.uint8
 
@@ -132,7 +135,7 @@ def test_preprocess_clahe_and_sharpen_keep_shape_and_dtype():
 # Verifies stability of the sharpening filter
 def test_unsharp_mask_leaves_flat_image_unchanged():
     gray = np.full((32, 32), 100, dtype=np.uint8)
-    assert np.array_equal(ar.unsharp_mask(gray), gray)
+    assert np.array_equal(preprocessing.unsharp_mask(gray), gray)
 
 
 # ----------------------------
@@ -149,15 +152,15 @@ def make_args(**kwargs):
 # Ensures the optimization path works
 def test_filter_pose_window_of_one_returns_input():
     t = np.array([1.0, 2.0, 3.0])
-    out = ar.filter_pose(1, t, make_args(pose_window=1))
+    out = pose.filter_pose(1, t, make_args(pose_window=1))
     assert out is t
 
 
 # Confirms mean averaging
 def test_filter_pose_mean():
     args = make_args()
-    ar.filter_pose(1, np.array([0.0, 0.0, 1.0]), args)
-    out = ar.filter_pose(1, np.array([0.0, 0.0, 3.0]), args)
+    pose.filter_pose(1, np.array([0.0, 0.0, 1.0]), args)
+    out = pose.filter_pose(1, np.array([0.0, 0.0, 3.0]), args)
     assert out == pytest.approx([0.0, 0.0, 2.0])
 
 
@@ -165,15 +168,15 @@ def test_filter_pose_mean():
 def test_filter_pose_median():
     args = make_args(pose_average="median")
     for z in (1.0, 5.0, 2.0):
-        out = ar.filter_pose(1, np.array([0.0, 0.0, z]), args)
+        out = pose.filter_pose(1, np.array([0.0, 0.0, z]), args)
     assert out == pytest.approx([0.0, 0.0, 2.0])
 
 
 # Checks the correctness of the last pose and ability to modify it
 def test_filter_pose_last():
     args = make_args(pose_average="last")
-    ar.filter_pose(1, np.array([0.0, 0.0, 1.0]), args)
-    out = ar.filter_pose(1, np.array([0.0, 0.0, 4.0]), args)
+    pose.filter_pose(1, np.array([0.0, 0.0, 1.0]), args)
+    out = pose.filter_pose(1, np.array([0.0, 0.0, 4.0]), args)
     assert out == pytest.approx([0.0, 0.0, 4.0])
 
 
@@ -181,22 +184,22 @@ def test_filter_pose_last():
 def test_filter_pose_window_drops_old_samples():
     args = make_args(pose_window=2)
     for z in (1.0, 2.0, 3.0):
-        out = ar.filter_pose(1, np.array([0.0, 0.0, z]), args)
+        out = pose.filter_pose(1, np.array([0.0, 0.0, z]), args)
     assert out == pytest.approx([0.0, 0.0, 2.5])
 
 
 # Tests outlier rejection
 def test_filter_pose_rejects_outlier():
     args = make_args(pose_outlier_thresh=0.1)
-    ar.filter_pose(1, np.array([0.0, 0.0, 1.0]), args)
-    assert ar.filter_pose(1, np.array([0.0, 0.0, 5.0]), args) is None
+    pose.filter_pose(1, np.array([0.0, 0.0, 1.0]), args)
+    assert pose.filter_pose(1, np.array([0.0, 0.0, 5.0]), args) is None
 
 
 # Shows that the pose history is tag-ID specific
 def test_filter_pose_tracks_tags_independently():
     args = make_args()
-    ar.filter_pose(1, np.array([0.0, 0.0, 1.0]), args)
-    out = ar.filter_pose(2, np.array([0.0, 0.0, 9.0]), args)
+    pose.filter_pose(1, np.array([0.0, 0.0, 1.0]), args)
+    out = pose.filter_pose(2, np.array([0.0, 0.0, 9.0]), args)
     assert out == pytest.approx([0.0, 0.0, 9.0])
 
 
@@ -236,18 +239,18 @@ def test_no_detections_in_blank_image():
 
 # Confirms the internal detector creation is cached and only one instance is created
 def test_detector_is_cached(tag_image):
-    ar._DETECTOR_CACHE.clear()
+    detector._DETECTOR_CACHE.clear()
     detect(tag_image)
     detect(tag_image)
-    assert len(ar._DETECTOR_CACHE) == 1
+    assert len(detector._DETECTOR_CACHE) == 1
 
 
 # Test that the detector cache invalidates when parameters change
 def test_detector_cache_changes_with_params(tag_image):
-    ar._DETECTOR_CACHE.clear()
+    detector._DETECTOR_CACHE.clear()
     detect(tag_image)  # default settings
     detect(tag_image, decimate=2.0)  # changed detector parameter
-    assert len(ar._DETECTOR_CACHE) == 2
+    assert len(detector._DETECTOR_CACHE) == 2
 
 
 # Checks the geometry, that the translation is consistent with camera params and that the tag is centered
@@ -284,7 +287,7 @@ def test_pose_strings_format(tag_image):
     f = 800.0
     center = (TAG_PIXELS + 2 * BORDER_PIXELS) / 2
     (det,) = detect(tag_image, do_pose=True, tag_size=0.05, fx=f, fy=f, cx=center, cy=center)
-    text = ar.pose_strings(det, None, 0.05)
+    text = pose.pose_strings(det, None, 0.05)
     assert text.startswith(f"ID {TAG_ID}: t=[")
     assert "rpy=[" in text
 
@@ -298,14 +301,14 @@ def test_rotation_matrix_to_rpy_round_trip(roll, pitch, yaw):
     Rx = cv2.Rodrigues(np.array([roll, 0.0, 0.0]))[0]
     Ry = cv2.Rodrigues(np.array([0.0, pitch, 0.0]))[0]
     Rz = cv2.Rodrigues(np.array([0.0, 0.0, yaw]))[0]
-    got = ar.rotation_matrix_to_rpy(Rz @ Ry @ Rx)
+    got = pose.rotation_matrix_to_rpy(Rz @ Ry @ Rx)
     assert got == pytest.approx((roll, pitch, yaw), abs=1e-9)
 
 
 # At pitch of +/-90 deg roll and yaw are ambiguous, but the result must stay finite
 def test_rotation_matrix_to_rpy_gimbal_lock():
     R = cv2.Rodrigues(np.array([0.0, np.pi / 2, 0.0]))[0]
-    roll, pitch, yaw = ar.rotation_matrix_to_rpy(R)
+    roll, pitch, yaw = pose.rotation_matrix_to_rpy(R)
     assert pitch == pytest.approx(np.pi / 2)
     assert np.isfinite(roll) and yaw == 0.0
 
@@ -343,7 +346,7 @@ def test_pose_strings_rpy_matches_known_tilt():
     assert abs(abs(roll) - 180.0) < 1.5 or abs(roll) < 1.5
     assert abs(yaw) < 1.5 or abs(abs(yaw) - 180.0) < 1.5
 
-    text = ar.pose_strings(det, None, 0.1)
+    text = pose.pose_strings(det, None, 0.1)
     assert f"rpy=[{roll:.1f},{pitch:.1f},{yaw:.1f}]" in text
 
 
@@ -359,7 +362,7 @@ def test_pose_translation_matches_rendered_geometry():
 def test_run_image_missing_file_exits_with_error(tmp_path, capsys):
     args = SimpleNamespace(clahe=False, sharpen=False, upscale=1.0)
     with pytest.raises(SystemExit) as exc:
-        ar.run_image(str(tmp_path / "does_not_exist.png"), args)
+        cli.run_image(str(tmp_path / "does_not_exist.png"), args)
     assert exc.value.code == 1
     assert "Cannot open image" in capsys.readouterr().err
 
@@ -368,22 +371,22 @@ def test_run_image_missing_file_exits_with_error(tmp_path, capsys):
 @pytest.mark.parametrize("upscale", [0.5, 1.0, 2.0])
 def test_pose_is_independent_of_upscale(upscale):
     img, f, cx, cy = render_tag_yawed(20.0, z=0.6)
-    gray = ar.preprocess(img, False, False, upscale)
-    fx, fy, cx2, cy2 = ar.scale_intrinsics(f, f, cx, cy, upscale)
+    gray = preprocessing.preprocess(img, False, False, upscale)
+    fx, fy, cx2, cy2 = pose.scale_intrinsics(f, f, cx, cy, upscale)
     (det,) = detect(gray, do_pose=True, tag_size=0.1, fx=fx, fy=fy, cx=cx2, cy=cy2)
     assert det.pose_t.reshape(-1) == pytest.approx([0.0, 0.0, 0.6], abs=0.01)
 
 
 def test_scale_intrinsics_passthrough():
-    assert ar.scale_intrinsics(1, 2, 3, 4, 1.0) == (1, 2, 3, 4)
-    assert ar.scale_intrinsics(None, None, None, None, 2.0) == (None, None, None, None)
-    assert ar.scale_intrinsics(1, 2, 3, 4, 2.0) == (2, 4, 6, 8)
+    assert pose.scale_intrinsics(1, 2, 3, 4, 1.0) == (1, 2, 3, 4)
+    assert pose.scale_intrinsics(None, None, None, None, 2.0) == (None, None, None, None)
+    assert pose.scale_intrinsics(1, 2, 3, 4, 2.0) == (2, 4, 6, 8)
 
 
 # 16-bit frames (e.g. Mono12/Mono16 cameras) must be reduced to 8-bit rather than crash
 def test_preprocess_accepts_16bit_images(tag_image):
     wide = tag_image.astype(np.uint16) * 257
-    gray = ar.preprocess(wide, True, True)
+    gray = preprocessing.preprocess(wide, True, True)
     assert gray.dtype == np.uint8
     assert len(detect(gray)) == 1
 
@@ -392,18 +395,18 @@ def test_preprocess_accepts_16bit_images(tag_image):
 # Only single-family detection is asserted: pupil-apriltags 1.0.4 drops all but the last
 # family when several are given.
 def test_comma_separated_families_are_normalized(tag_image):
-    ar._DETECTOR_CACHE.clear()
-    assert [d.tag_id for d in ar.detect_tags(tag_image, families="tag36h11,")] == [TAG_ID]
-    ar.detect_tags(tag_image, families=" tag36h11 ")
-    assert len(ar._DETECTOR_CACHE) == 1
+    detector._DETECTOR_CACHE.clear()
+    assert [d.tag_id for d in detector.detect_tags(tag_image, families="tag36h11,")] == [TAG_ID]
+    detector.detect_tags(tag_image, families=" tag36h11 ")
+    assert len(detector._DETECTOR_CACHE) == 1
 
 
 # A bad first pose must not lock the filter into rejecting every later good pose
 def test_filter_pose_recovers_from_bad_first_pose():
     args = SimpleNamespace(pose_window=3, pose_outlier_thresh=0.05, pose_average="mean")
     good = np.array([0.0, 0.0, 1.0])
-    outputs = [ar.filter_pose(1, np.array([0.0, 0.0, 5.0]), args)]
-    outputs += [ar.filter_pose(1, good, args) for _ in range(4)]
+    outputs = [pose.filter_pose(1, np.array([0.0, 0.0, 5.0]), args)]
+    outputs += [pose.filter_pose(1, good, args) for _ in range(4)]
     assert outputs[-1] == pytest.approx(good)
 
 
@@ -412,9 +415,9 @@ def test_filter_pose_still_rejects_single_outlier():
     args = SimpleNamespace(pose_window=5, pose_outlier_thresh=0.05, pose_average="mean")
     good = np.array([0.0, 0.0, 1.0])
     for _ in range(3):
-        ar.filter_pose(1, good, args)
-    assert ar.filter_pose(1, np.array([0.0, 0.0, 3.0]), args) is None
-    assert ar.filter_pose(1, good, args) == pytest.approx(good)
+        pose.filter_pose(1, good, args)
+    assert pose.filter_pose(1, np.array([0.0, 0.0, 3.0]), args) is None
+    assert pose.filter_pose(1, good, args) == pytest.approx(good)
 
 
 # ----------------------------
@@ -425,25 +428,25 @@ def test_filter_pose_still_rejects_single_outlier():
 # Checks that a 3-channel color image is returned
 def test_draw_detections_returns_color_image(tag_image):
     results = detect(tag_image)
-    out = ar.draw_detections(tag_image, results)
+    out = rendering.draw_detections(tag_image, results)
     assert out.shape == (*tag_image.shape, 3)
 
 
 # Runs Canny on the tag image and expects at least some edges found
 def test_canny_edges_finds_edges_of_tag(tag_image):
-    assert ar.canny_edges(tag_image).any()
+    assert preprocessing.canny_edges(tag_image).any()
 
 
 # Checks that the expected files are written (_gray.png, _overlay.png, _edges_overlay.png) and confirms they are readable
 def test_write_debug_images_creates_expected_files(tmp_path, tag_image):
     base = str(tmp_path / "frame")
-    edges = ar.canny_edges(tag_image)
-    paths = ar.write_debug_images(
+    edges = preprocessing.canny_edges(tag_image)
+    paths = rendering.write_debug_images(
         base,
         tag_image,
         edges,
-        ar.draw_detections(tag_image, []),
-        ar.draw_edges_overlay(tag_image, edges),
+        rendering.draw_detections(tag_image, []),
+        rendering.draw_edges_overlay(tag_image, edges),
     )
     assert [p.removeprefix(base) for p in paths] == [
         "_gray.png",
@@ -462,7 +465,7 @@ def test_write_debug_images_creates_expected_files(tmp_path, tag_image):
 # Ensures default options are correctly populated (image, families, tag_size, frame_id)
 def test_parse_args_defaults(monkeypatch):
     monkeypatch.setattr(sys, "argv", ["apriltag_runner.py", "--image", "tag.png"])
-    args = ar.parse_args()
+    args = cli.parse_args()
     assert args.image == "tag.png"
     assert args.families == "tag36h11"
     assert args.tag_size is None
@@ -473,7 +476,7 @@ def test_parse_args_defaults(monkeypatch):
 def test_parse_args_requires_a_source(monkeypatch):
     monkeypatch.setattr(sys, "argv", ["apriltag_runner.py"])
     with pytest.raises(SystemExit):
-        ar.parse_args()
+        cli.parse_args()
 
 
 # Ensures mutual exclusion in CLI options
@@ -482,4 +485,46 @@ def test_parse_args_rejects_both_sources(monkeypatch):
         sys, "argv", ["apriltag_runner.py", "--image", "a.png", "--cam-id", "DEV_1"]
     )
     with pytest.raises(SystemExit):
-        ar.parse_args()
+        cli.parse_args()
+
+
+# ----------------------------
+# Packaging: optional ROS 2 / Vimba X
+# ----------------------------
+
+
+# Shared modules must import without ROS 2 or vmbpy being pulled in
+def test_shared_modules_do_not_import_ros_or_vimba():
+    root = Path(__file__).resolve().parent.parent
+    code = (
+        "import sys; "
+        "import apriltag_reader.detector, apriltag_reader.preprocessing, "
+        "apriltag_reader.pose, apriltag_reader.rendering, apriltag_reader.cli; "
+        "bad = [m for m in ('rclpy', 'tf2_ros', 'std_msgs', 'geometry_msgs', 'vmbpy') "
+        "if m in sys.modules]; "
+        "sys.exit(1 if bad else 0)"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        env={
+            **os.environ,
+            "PYTHONPATH": os.pathsep.join([str(root / "src"), os.environ.get("PYTHONPATH", "")]),
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+
+
+# The top-level wrapper keeps `python3 apriltag_runner.py ...` working
+def test_wrapper_script_runs_cli():
+    root = Path(__file__).resolve().parent.parent
+    result = subprocess.run(
+        [sys.executable, str(root / "apriltag_runner.py"), "--help"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "--cam-id" in result.stdout
